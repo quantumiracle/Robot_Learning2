@@ -221,7 +221,7 @@ if __name__ == '__main__':
         print(
             'Ep: %i' % ep,
             "|Ep_r: %.4f" % ep_r,
-            "|Ep_Length: %i" % t+1 , 
+            "|Ep_Length: %i" % int(t+1) , 
             ("|Lam: %.4f" % METHOD['lam']) if METHOD['name'] == 'kl_pen' else '',
         )
         if ep % 50==0:
