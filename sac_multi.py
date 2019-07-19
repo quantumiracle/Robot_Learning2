@@ -1,9 +1,3 @@
-'''
-have some problems with plot: plot takes too much time, maybe matplotlib in two processes causes that.
-problems with stopping the program using keyboard interrupt, not stop, needs to close terminal.
-'''
-
-
 import math
 import random
 
@@ -26,7 +20,13 @@ from IPython.display import display
 
 from reacher_sawyer_env import ReacherEnv
 import argparse
-from multiprocessing import Process
+import time
+
+import torch.multiprocessing as mp
+from torch.multiprocessing import Process
+
+from multiprocessing import Process, Manager
+from multiprocessing.managers import BaseManager
 
 
 GPU = True
@@ -37,6 +37,12 @@ else:
     device = torch.device("cpu")
 print(device)
 
+
+parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
+parser.add_argument('--train', dest='train', action='store_true', default=False)
+parser.add_argument('--test', dest='test', action='store_true', default=False)
+
+args = parser.parse_args()
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -61,7 +67,10 @@ class ReplayBuffer:
         '''
         return state, action, reward, next_state, done
     
-    def __len__(self):
+    def __len__(self):  # cannot work in multiprocessing case, len(replay_buffer) is not available in proxy of manager!
+        return len(self.buffer)
+
+    def get_length(self):
         return len(self.buffer)
 
 class NormalizedActions(gym.ActionWrapper):
@@ -295,27 +304,39 @@ class SAC_Trainer():
         return predicted_new_q_value.mean()
 
     def save_model(self, path):
-        torch.save(self.soft_q_net1.state_dict(), path)
-        torch.save(self.soft_q_net2.state_dict(), path)
-        torch.save(self.policy_net.state_dict(), path)
+        torch.save(self.soft_q_net1.state_dict(), path+'_q1')  # have to specify different path name here!
+        torch.save(self.soft_q_net2.state_dict(), path+'_q2')
+        torch.save(self.policy_net.state_dict(), path+'_policy')
 
     def load_model(self, path):
-        self.soft_q_net1.load_state_dict(torch.load(path))
-        self.soft_q_net2.load_state_dict(torch.load(path))
-        self.policy_net.load_state_dict(torch.load(path))
+        self.soft_q_net1.load_state_dict(torch.load(path+'_q1'))
+        self.soft_q_net2.load_state_dict(torch.load(path+'_q2'))
+        self.policy_net.load_state_dict(torch.load(path+'_policy'))
 
-def worker(id):
+        self.soft_q_net1.eval()
+        self.soft_q_net2.eval()
+        self.policy_net.eval()
+
+
+def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_steps, batch_size, explore_steps, \
+            update_itr, AUTO_ENTROPY, DETERMINISTIC, hidden_dim, model_path):
     '''
-    the function for sampling, cannot be a class function for multi-processing
+    the function for sampling with multi-processing
     '''
-    env=ReacherEnv(headless=True) # for multi-process the headless has to be True
-    frame_idx=0
-    rewards=[]
-    print(sac_trainer)
+
+    print(sac_trainer, replay_buffer)  # sac_tainer are not the same, but all networks and optimizers in it are the same; replay  buffer is the same one.
+    env = ReacherEnv(headless=True)  # no need to configure different port_number for calling different Vrep env at the same time
+
+    action_dim = env.action_space.shape[0]
+    state_dim  = env.observation_space.shape[0]
+
+
     # training loop
     for eps in range(max_episodes):
-        state = env.reset()
+        frame_idx=0
+        rewards=[]
         episode_reward = 0
+        state =  env.reset()
         
         for step in range(max_steps):
             if frame_idx > explore_steps:
@@ -324,11 +345,10 @@ def worker(id):
                 action = sac_trainer.policy_net.sample_action()
     
             try:
-                next_state, reward, done = env.step(action)
+                next_state, reward, done = env.step(action) 
             except KeyboardInterrupt:
                 print('Finished')
                 sac_trainer.save_model(model_path)
-                env.shutdown()
     
             replay_buffer.push(state, action, reward, next_state, done)
             
@@ -338,11 +358,12 @@ def worker(id):
             
             
             # if len(replay_buffer) > batch_size:
-                # for i in range(update_itr):
-                    # _=self.sac_trainer.update(batch_size, reward_scale=10., auto_entropy=AUTO_ENTROPY, target_entropy=-1.*action_dim)
+            if replay_buffer.get_length() > batch_size:
+                for i in range(update_itr):
+                    _=sac_trainer.update(batch_size, reward_scale=10., auto_entropy=AUTO_ENTROPY, target_entropy=-1.*action_dim)
             
             if eps % 10 == 0 and eps>0:
-                plot(rewards, id)
+                # plot(rewards, id)
                 sac_trainer.save_model(model_path)
             
             if done:
@@ -350,67 +371,131 @@ def worker(id):
         print('Episode: ', eps, '| Episode Reward: ', episode_reward)
         if len(rewards) == 0: rewards.append(episode_reward)
         else: rewards.append(rewards[-1]*0.9+episode_reward*0.1)
+        rewards_queue.put(episode_reward)
+
     sac_trainer.save_model(model_path)
     env.shutdown()
             
 
 
-def plot(rewards, id):
+def ShareParameters(adamoptim):
+    ''' share parameters of Adamoptimizers for multiprocessing '''
+    for group in adamoptim.param_groups:
+        for p in group['params']:
+            state = adamoptim.state[p]
+            # initialize: have to initialize here, or else cannot find
+            state['step'] = 0
+            state['exp_avg'] = torch.zeros_like(p.data)
+            state['exp_avg_sq'] = torch.zeros_like(p.data)
+
+            # share in memory
+            state['exp_avg'].share_memory_()
+            state['exp_avg_sq'].share_memory_()
+            
+def plot(rewards):
     clear_output(True)
     plt.figure(figsize=(20,5))
     plt.plot(rewards)
-    plt.savefig('sac_multi'+str(id)+'.png')
+    plt.savefig('sac_multi.png')
     # plt.show()
     plt.clf()
 
 
-
-replay_buffer_size = 1e6
-replay_buffer = ReplayBuffer(replay_buffer_size)
-
-model_path = './model/sac_multi'
-
-# hyper-parameters for RL training
-max_episodes = 10000
-max_steps   = 100
-frame_idx   = 0
-batch_size  = 256
-explore_steps = 2000  # for random action sampling in the beginning of training
-update_itr = 1
-AUTO_ENTROPY=True
-DETERMINISTIC=False
-hidden_dim = 128
-action_range=2.
-rewards     = []
 ''' if call an env here, cause dead lock in QT, not work! '''
 # env=ReacherEnv(headless=True)
 # state_dim = env.observation_space.shape[0]
 # action_dim = env.action_space.shape[0]
 # env.shutdown()
 
-state_dim=17
-action_dim=7
+# state_dim=17
+# action_dim=7
 
 
-sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range)
+if __name__ == '__main__':
 
-if  __name__=='__main__':
+    replay_buffer_size = 1e6
+    # replay_buffer = ReplayBuffer(replay_buffer_size)
+
+    # the replay buffer is a class, have to use torch manager to make it a proxy for sharing across processes
+    BaseManager.register('ReplayBuffer', ReplayBuffer)
+    manager = BaseManager()
+    manager.start()
+    replay_buffer = manager.ReplayBuffer(replay_buffer_size)  # share the replay buffer through manager
 
 
-    num_workers=2
-    processes=[]
-    for i in range(num_workers):
-        process = Process(target=worker, args=(i,))
-        process.daemon=True
-        processes.append(process)
-    # for p in processes:
-    #     p.daemon=True
-    try:
+    # choose env
+    env = ReacherEnv(headless=True)
+
+    action_dim = env.action_space.shape[0]
+    state_dim  = env.observation_space.shape[0]
+    action_range=1.
+
+    # hyper-parameters for RL training, no need for sharing across processes
+    max_episodes  = 100000
+    max_steps   = 20 
+    explore_steps = 200  # for random action sampling in the beginning of training
+    batch_size=128
+    update_itr = 1
+    AUTO_ENTROPY=True
+    DETERMINISTIC=False
+    hidden_dim = 512
+    model_path = './model/sac_multi'
+
+    sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
+
+    if args.train:
+
+        # share the global parameters in multiprocessing
+        sac_trainer.soft_q_net1.share_memory() 
+        sac_trainer.soft_q_net2.share_memory()
+        sac_trainer.target_soft_q_net1.share_memory()
+        sac_trainer.target_soft_q_net2.share_memory()
+        sac_trainer.policy_net.share_memory()
+        sac_trainer.log_alpha.share_memory_()
+        ShareParameters(sac_trainer.soft_q_optimizer1)
+        ShareParameters(sac_trainer.soft_q_optimizer2)
+        ShareParameters(sac_trainer.policy_optimizer)
+        ShareParameters(sac_trainer.alpha_optimizer)
+
+        rewards_queue=mp.Queue()  # used for get rewards from all processes and plot the curve
+
+        num_workers=2  # or: mp.cpu_count()
+        processes=[]
+        rewards=[]
+
+        for i in range(num_workers):
+            process = Process(target=worker, args=(i, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_steps, \
+            batch_size, explore_steps, update_itr, AUTO_ENTROPY, DETERMINISTIC, hidden_dim, model_path))  # the args contain shared and not shared
+            process.daemon=True  # all processes closed when the main stops
+            processes.append(process)
+
         [p.start() for p in processes]
-        [p.join() for p in processes]
-    except KeyboardInterrupt:
-        print('Finished')
+        while True:  # keep geting the episode reward from the queue
+            r = rewards_queue.get()
+            if r is not None:
+                rewards.append(r)
+            else:
+                break
+
+            if len(rewards)%20==0 and len(rewards)>0:
+                plot(rewards)
+
+        [p.join() for p in processes]  # finished at the same time
+
         sac_trainer.save_model(model_path)
-    sac_trainer.save_model(model_path)
 
+    if args.test:
+        # single process for testing
+        sac_trainer.load_model(model_path)
+        for eps in range(10):
+            visual_state, state =  env.reset()
+            episode_reward = 0
 
+            for step in range(max_steps):
+                action = sac_trainer.policy_net.get_action(state, deterministic = DETERMINISTIC)
+                next_visual_state, next_state, reward, done = env.step(action)  
+
+                episode_reward += reward
+                state=next_state
+
+            print('Episode: ', eps, '| Episode Reward: ', episode_reward)

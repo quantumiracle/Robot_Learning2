@@ -292,14 +292,17 @@ class SAC_Trainer():
         return predicted_new_q_value.mean()
 
     def save_model(self, path):
-        torch.save(self.soft_q_net1.state_dict(), path)
-        torch.save(self.soft_q_net2.state_dict(), path)
-        torch.save(self.policy_net.state_dict(), path)
+        torch.save(self.soft_q_net1.state_dict(), path+'_q1')
+        torch.save(self.soft_q_net2.state_dict(), path+'_q2')
+        torch.save(self.policy_net.state_dict(), path+'_policy')
 
     def load_model(self, path):
-        self.soft_q_net1.load_state_dict(torch.load(path))
-        self.soft_q_net2.load_state_dict(torch.load(path))
-        self.policy_net.load_state_dict(torch.load(path))
+        self.soft_q_net1.load_state_dict(torch.load(path+'_q1'))
+        self.soft_q_net2.load_state_dict(torch.load(path+'_q2'))
+        self.policy_net.load_state_dict(torch.load(path+'_policy'))
+        self.soft_q_net1.eval()
+        self.soft_q_net2.eval()
+        self.policy_net.eval()
 
 
 def plot(rewards):

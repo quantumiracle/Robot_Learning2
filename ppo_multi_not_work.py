@@ -1,4 +1,5 @@
 """
+The Vrep env cannot work with multithreading, one env has to be in one process！
 image-based observation for learning: image of the tactip, size 256*256 = 65536, encoded to be 2048 dim
 task: tactip following the cylinder to reach the ball target
 """
