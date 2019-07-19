@@ -429,6 +429,7 @@ if __name__ == '__main__':
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
     action_range=1.
+    env.shutdown()
 
     # hyper-parameters for RL training, no need for sharing across processes
     max_episodes  = 100000
@@ -485,15 +486,16 @@ if __name__ == '__main__':
         sac_trainer.save_model(model_path)
 
     if args.test:
+        env = ReacherEnv(headless=False) # for visualizing in test
         # single process for testing
         sac_trainer.load_model(model_path)
         for eps in range(10):
-            visual_state, state =  env.reset()
+            state =  env.reset()
             episode_reward = 0
 
             for step in range(max_steps):
                 action = sac_trainer.policy_net.get_action(state, deterministic = DETERMINISTIC)
-                next_visual_state, next_state, reward, done = env.step(action)  
+                next_state, reward, done = env.step(action)  
 
                 episode_reward += reward
                 state=next_state
