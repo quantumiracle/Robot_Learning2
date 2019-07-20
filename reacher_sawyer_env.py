@@ -17,7 +17,7 @@ from pyrep.objects.shape import Shape
 import numpy as np
 
 SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl.ttt')
-POS_MIN, POS_MAX = [0.3, 0.3, 0.8], [0.5, 0.5, 0.8]  # valid position range of target object 
+POS_MIN, POS_MAX = [0.1, -0.3, 0.8], [0.45, 0.3, 0.8]  # valid position range of target object 
 
 
 class ReacherEnv(object):
@@ -53,15 +53,18 @@ class ReacherEnv(object):
     def step(self, action):
         self.agent.set_joint_target_velocities(action)  # Execute action on arm
         self.pr.step()  # Step the physics simulation
-        ax, ay, az = self.agent_ee_tip.get_position()
+        # ax, ay, az = self.agent_ee_tip.get_position()
+        ax, ay, az = self.gripper.get_position()
         tx, ty, tz = self.target.get_position()
         # Reward is negative distance to target
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
         done=False
         if distance<0.05:
-            done=True
             self.gripper.actuate(0, velocity=0.04)  # if done, close the hand, 0 for close and 1 for open.
             self.pr.step()  # Step the physics simulation
+
+            # if grasp:
+            #     done=True
 
         reward = -np.sqrt(distance)
         return self._get_state(), reward, done

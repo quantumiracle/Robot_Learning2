@@ -433,7 +433,7 @@ if __name__ == '__main__':
 
     # hyper-parameters for RL training, no need for sharing across processes
     max_episodes  = 100000
-    max_steps   = 20 
+    max_steps   = 40 
     explore_steps = 200  # for random action sampling in the beginning of training
     batch_size=128
     update_itr = 1
