@@ -24,6 +24,7 @@ from matplotlib import animation
 from IPython.display import display
 
 from reacher_sawyer_env import ReacherEnv
+from reacher_sawyer_visual_env import ReacherEnv
 import argparse
 
 GPU = True

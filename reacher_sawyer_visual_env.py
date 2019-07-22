@@ -25,7 +25,11 @@ POS_MIN, POS_MAX = [0.1, -0.3, 0.8], [0.45, 0.3, 0.8]  # valid position range of
 
 class ReacherEnv(object):
 
-    def __init__(self, headless):
+    def __init__(self, headless, visual_control=False):
+        '''
+        :visual_control: bool, controlled by visual state or not (vector state).
+        '''
+        self.visual_control = visual_control
         self.pr = PyRep()
         self.pr.launch(SCENE_FILE, headless=headless)
         self.pr.start()
@@ -37,6 +41,7 @@ class ReacherEnv(object):
         self.agent.set_control_loop_enabled(False)
         self.agent.set_motor_locked_at_zero_velocity(True)
         self.target = Shape('target')  # object
+        # self.table = Shape('diningTable')
         self.agent_ee_tip = self.agent.get_tip()
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.action_space = np.zeros(7)  # 7 DOF velocity control
@@ -47,6 +52,10 @@ class ReacherEnv(object):
         return np.array(self.agent.get_joint_positions() +
                 self.agent.get_joint_velocities() +
                 self.target.get_position())
+
+    def _get_visual_state(self):
+        # Return a numpy array of size (width, height, 3)
+        return self.vision_sensor.capture_rgb()  # A numpy array of size (width, height, 3)
 
     def _is_holding(self):
         # Return is holding the target or not, return bool
@@ -63,11 +72,16 @@ class ReacherEnv(object):
         # Get a random position within a cuboid and set the target position
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
+        # changing the color or texture for domain randomization
+        self.target.set_color(np.random.uniform(low=0, high=1, size=3).tolist()) # set [r,g,b] 3 channel values of object color
         self.agent.set_joint_positions(self.initial_joint_positions)
-        # set collidable, for collision detection
+        # self.table.set_collidable(True)
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
-        return self._get_state()
+        if self.visual_control:
+            return self._get_visual_state
+        else:
+            return self._get_state()
 
     def step(self, action):
         self.agent.set_joint_target_velocities(action)  # Execute action on arm
@@ -93,7 +107,10 @@ class ReacherEnv(object):
                 done=True
 
         reward = -np.sqrt(distance)
-        return self._get_state(), reward, done
+        if self.visual_control:
+            return self._get_visual_state, reward, done
+        else:
+            return self._get_state(), reward, done
 
     def shutdown(self):
         self.pr.stop()
