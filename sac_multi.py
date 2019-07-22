@@ -494,6 +494,7 @@ if __name__ == '__main__':
             episode_reward = 0
 
             for step in range(max_steps):
+                print(step)
                 action = sac_trainer.policy_net.get_action(state, deterministic = DETERMINISTIC)
                 next_state, reward, done = env.step(action)  
 

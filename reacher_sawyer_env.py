@@ -13,10 +13,13 @@ from os.path import dirname, join, abspath
 from pyrep import PyRep
 from pyrep.robots.arms.sawyer import Sawyer
 from pyrep.robots.end_effectors.baxter_gripper import BaxterGripper
+from pyrep.objects.proximity_sensor import ProximitySensor
+from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.shape import Shape
 import numpy as np
+import matplotlib.pyplot as plt
 
-SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl.ttt')
+SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new.ttt')
 POS_MIN, POS_MAX = [0.1, -0.3, 0.8], [0.45, 0.3, 0.8]  # valid position range of target object 
 
 
@@ -29,9 +32,11 @@ class ReacherEnv(object):
         # self.agent = Panda()
         self.agent = Sawyer()
         self.gripper = BaxterGripper()
+        self.proximity_sensor = ProximitySensor('BaxterGripper_attachProxSensor')  # need the name of the sensor here
+        self.vision_sensor = VisionSensor('Vision_sensor')  # need the name of the sensor here
         self.agent.set_control_loop_enabled(False)
         self.agent.set_motor_locked_at_zero_velocity(True)
-        self.target = Shape('target')
+        self.target = Shape('target')  # object
         self.agent_ee_tip = self.agent.get_tip()
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.action_space = np.zeros(7)  # 7 DOF velocity control
@@ -59,7 +64,13 @@ class ReacherEnv(object):
         # Reward is negative distance to target
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
         done=False
-        if distance<0.05:
+        # print(self.proximity_sensor.is_detected(self.target))
+        current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
+        plt.imshow(current_vision)
+        plt.savefig('./img/vision.png')
+
+        # close the gripper if close enough to the object and the object is detected with the proximity sensor
+        if distance<0.05 and self.proximity_sensor.is_detected(self.target)== True: 
             self.gripper.actuate(0, velocity=0.04)  # if done, close the hand, 0 for close and 1 for open.
             self.pr.step()  # Step the physics simulation
 
