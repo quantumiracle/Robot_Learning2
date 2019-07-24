@@ -89,12 +89,20 @@ class ReacherEnv(object):
     def _move(self, action):
         # Move the tip according to the action with inverse kinematics for 'end_position' control;
         # with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
-        action=list(action)
+        robot_moving_unit=0.02
+        moving_loop_itr=int(np.sum(np.abs(action))/robot_moving_unit)+1
+        # print(moving_loop_itr)
+        small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
         pos=self.agent_ee_tip.get_position()
-        assert len(action) == len(pos)
-        for idx in range(len(pos)):
-            pos[idx] += action[idx]
-        self.tip_target.set_position(pos)
+        assert len(small_step) == len(pos)
+        # print('before: ',self.agent_ee_tip.get_position())
+        for _ in range(moving_loop_itr):
+            for idx in range(len(pos)):
+                pos[idx] += small_step[idx]
+            self.tip_target.set_position(pos)
+            self.pr.step()
+        # print('target: ', pos)
+        # print('after: ', self.agent_ee_tip.get_position())
 
     def reset(self):
         # Get a random position within a cuboid and set the target position
@@ -119,19 +127,23 @@ class ReacherEnv(object):
             self._move(action)
         elif self.control_mode == 'joint_velocity':
             self.agent.set_joint_target_velocities(action)  # Execute action on arm
-        self.pr.step()
+            self.pr.step()
         ax, ay, az = self.gripper.get_position()
         tx, ty, tz = self.target.get_position()
         # Reward is negative distance to target
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
         done=False
-        # print(self.proximity_sensor.is_detected(self.target))
+        
         current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
         plt.imshow(current_vision)
         plt.savefig('./img/vision.png')
         
         # close the gripper if close enough to the object and the object is detected with the proximity sensor
         if distance<0.05 and self.proximity_sensor.is_detected(self.target)== True: 
+            # make sure the gripper is open before grasping
+            self.gripper.actuate(1, velocity=0.5)
+            self.pr.step()
+
             self.gripper.actuate(0, velocity=0.5)  # if done, close the hand, 0 for close and 1 for open; velocity 0.5 ensures the gripper to close with in one frame
             self.pr.step()  # Step the physics simulation
 
