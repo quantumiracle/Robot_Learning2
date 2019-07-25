@@ -148,7 +148,7 @@ class ReacherEnv(object):
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
         if self.visual_control:
-            return self._get_visual_state
+            return self._get_visual_state()
         else:
             return self._get_state()
 
@@ -206,7 +206,7 @@ class ReacherEnv(object):
 
         reward -= np.sqrt(distance)
         if self.visual_control:
-            return self._get_visual_state, reward, done, {}
+            return self._get_visual_state(), reward, done, {}
         else:
             return self._get_state(), reward, done, {}
 
