@@ -30,6 +30,8 @@ class ReacherEnv(object):
         :headless: bool, if True, no visualization, else with visualization.
         :control mode: str, 'end_position' or 'joint_velocity'.
         '''
+        self.reward_range=10.0
+        self.metadata=[]  # gym env format
         self.control_mode = control_mode
         self.pr = PyRep()
         if control_mode == 'end_position':  # need to use different scene, the one with all joints in inverse kinematics mode
@@ -45,27 +47,41 @@ class ReacherEnv(object):
         self.vision_sensor = VisionSensor('Vision_sensor')  # need the name of the sensor here
         if control_mode == 'end_position':
             self.agent.set_control_loop_enabled(True)  # if false, won't work
+            self.action_space = np.zeros(4)  # 3 DOF end position control + 1 rotation of gripper
         elif control_mode == 'joint_velocity':
             self.agent.set_control_loop_enabled(False)
+            self.action_space = np.zeros(8)  # 7 DOF velocity control + 1 rotation of gripper
+        self.observation_space = np.zeros(17)  # position and velocity of 7 joints + position of the target
         self.agent.set_motor_locked_at_zero_velocity(True)
         self.target = Shape('target')  # object
         self.tip_target = Dummy('Sawyer_target')   # the target point of the tip to move towards
         self.agent_ee_tip = self.agent.get_tip()  # a part of robot as the end of inverse kinematics chain for controlling
         self.tip_pos = self.agent_ee_tip.get_position()
         self.tip_quat=self.agent_ee_tip.get_quaternion()  # tip rotation as quaternion, if not control the rotation
+        
+        # set a proper initial gesture/tip position
+        agent_position=self.agent.get_position()
+        initial_pos_offset = [0.6, 0.2, 0.4]  # initial relative position of gripper to the whole arm
+        initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
+        self.tip_target.set_position(initial_pos)
+        self.tip_target.set_orientation([0,3.1415,1.5708])  # make gripper face downwards
+        self.pr.step()
+
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.initial_gripper_positions = self.gripper.get_position()
-        self.action_space = np.zeros(7)  # 7 DOF velocity control
-        self.observation_space = np.zeros(17)  # position and velocity of 7 joints + position of the target
 
     def _get_state(self):
-        # Return state containing arm joint angles/velocities & target position
+        '''
+         Return state containing arm joint angles/velocities & target position.
+         '''
         return np.array(self.agent.get_joint_positions() +
                 self.agent.get_joint_velocities() +
                 self.target.get_position())
 
     def _is_holding(self):
-        # Return is holding the target or not, return bool.
+        '''
+         Return is holding the target or not, return bool.
+        '''
 
         # Nothe that the collision check is not always accurate all the time, 
         # for continuous conllision, maybe only the first 4-5 frames of collision can be detected
@@ -87,25 +103,41 @@ class ReacherEnv(object):
     #     self.agent.set_joint_target_positions(new_joint_angles)
 
     def _move(self, action):
-        # Move the tip according to the action with inverse kinematics for 'end_position' control;
-        # with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
-        robot_moving_unit=0.02
-        moving_loop_itr=int(np.sum(np.abs(action))/robot_moving_unit)+1
+        ''' 
+        Move the tip according to the action with inverse kinematics for 'end_position' control;
+        with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
+        '''
+        robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
+        moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step; the larger it is, the more accurate for each movement.
         # print(moving_loop_itr)
         small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
         pos=self.agent_ee_tip.get_position()
-        assert len(small_step) == len(pos)
+
+        ''' 
+        there is a mismatch between the object set_orientation() and get_orientation():
+        the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
+        '''
+        ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
+        assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
+
         # print('before: ',self.agent_ee_tip.get_position())
         for _ in range(moving_loop_itr):
             for idx in range(len(pos)):
                 pos[idx] += small_step[idx]
             self.tip_target.set_position(pos)
             self.pr.step()
+            ori_z+=small_step[3]  # change the orientation along z-axis with a small step
+            self.tip_target.set_orientation([0,3.1415,ori_z])  # make gripper face downwards
+            self.pr.step()
+        # print(self.tip_target.get_orientation())
+        # print(self.agent_ee_tip.get_orientation())
         # print('target: ', pos)
         # print('after: ', self.agent_ee_tip.get_position())
 
     def reset(self):
-        # Get a random position within a cuboid and set the target position
+        '''
+         Get a random position within a cuboid and set the target position.
+         '''
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.agent.set_joint_positions(self.initial_joint_positions)
@@ -121,13 +153,19 @@ class ReacherEnv(object):
         if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values.
         '''
         if self.control_mode == 'end_position':
-            if action is None or action.shape[0]!=3:
-                action = list(np.random.uniform(-0.1, 0.1, 3))  # random
-            print(action, self.agent_ee_tip.get_position())
+            if action is None or action.shape[0]!=4:
+                action = list(np.random.uniform(-0.1, 0.1, 4))  # random
+            # print(action, self.agent_ee_tip.get_position())
             self._move(action)
+
         elif self.control_mode == 'joint_velocity':
             self.agent.set_joint_target_velocities(action)  # Execute action on arm
             self.pr.step()
+            ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
+            ori_z+=action[7]  # change the orientation along z-axis
+            self.tip_target.set_orientation([0,3.1415,ori_z])  # change orientation
+            self.pr.step()
+
         ax, ay, az = self.gripper.get_position()
         tx, ty, tz = self.target.get_position()
         # Reward is negative distance to target
@@ -138,8 +176,9 @@ class ReacherEnv(object):
         plt.imshow(current_vision)
         plt.savefig('./img/vision.png')
         
+        reward=0
         # close the gripper if close enough to the object and the object is detected with the proximity sensor
-        if distance<0.05 and self.proximity_sensor.is_detected(self.target)== True: 
+        if distance<0.1 and self.proximity_sensor.is_detected(self.target)== True: 
             # make sure the gripper is open before grasping
             self.gripper.actuate(1, velocity=0.5)
             self.pr.step()
@@ -149,14 +188,19 @@ class ReacherEnv(object):
 
             if self._is_holding():
                 # reward for hold here!
+                reward += self.reward_range
                 done=True
             
             else:
                 self.gripper.actuate(1, velocity=0.5)
                 self.pr.step()
 
-        reward = -np.sqrt(distance)
-        return self._get_state(), reward, done
+        elif np.sum(self.gripper.get_open_amount())<1.5: # if gripper is closed (not fully open) due to collision or esle, open it; .get_open_amount() return list of gripper joint values
+            self.gripper.actuate(1, velocity=0.5)
+            self.pr.step()
+
+        reward -= np.sqrt(distance)
+        return self._get_state(), reward, done, {}
 
     def shutdown(self):
         self.pr.stop()
@@ -167,7 +211,7 @@ if __name__ == '__main__':
     env.reset()
     for step in range(1000):
         print(step)
-        action=np.random.uniform(-0.1,0.1,3)  # action dim is 7
+        action=np.random.uniform(-0.1,0.1,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
         try:
             env.step(action)
         except KeyboardInterrupt:

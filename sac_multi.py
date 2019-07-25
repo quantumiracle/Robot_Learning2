@@ -345,7 +345,7 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
                 action = sac_trainer.policy_net.sample_action()
     
             try:
-                next_state, reward, done = env.step(action) 
+                next_state, reward, done, _ = env.step(action) 
             except KeyboardInterrupt:
                 print('Finished')
                 sac_trainer.save_model(model_path)
@@ -424,7 +424,7 @@ if __name__ == '__main__':
 
 
     # choose env
-    env = ReacherEnv(headless=True)
+    env = ReacherEnv(headless=True, control_mode='end_position')
 
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
@@ -496,7 +496,7 @@ if __name__ == '__main__':
             for step in range(max_steps):
                 print(step)
                 action = sac_trainer.policy_net.get_action(state, deterministic = DETERMINISTIC)
-                next_state, reward, done = env.step(action)  
+                next_state, reward, done, _ = env.step(action)  
 
                 episode_reward += reward
                 state=next_state

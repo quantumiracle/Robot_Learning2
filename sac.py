@@ -24,7 +24,7 @@ from matplotlib import animation
 from IPython.display import display
 
 from reacher_sawyer_env import ReacherEnv
-from reacher_sawyer_visual_env import ReacherEnv
+# from reacher_sawyer_visual_env import ReacherEnv
 import argparse
 
 GPU = True
@@ -327,7 +327,7 @@ model_path = './model/sac'
 
 # hyper-parameters for RL training
 max_episodes = 10000
-max_steps   = 100
+max_steps   = 30
 frame_idx   = 0
 batch_size  = 256
 explore_steps = 2000  # for random action sampling in the beginning of training
@@ -335,7 +335,7 @@ update_itr = 1
 AUTO_ENTROPY=True
 DETERMINISTIC=False
 hidden_dim = 512
-action_range=2.
+action_range=1.
 rewards     = []
 
 
@@ -352,7 +352,7 @@ for eps in range(max_episodes):
         else:
             action = sac_trainer.policy_net.sample_action()
    
-        next_state, reward, done = env.step(action)
+        next_state, reward, done, _ = env.step(action)
    
         replay_buffer.push(state, action, reward, next_state, done)
         
