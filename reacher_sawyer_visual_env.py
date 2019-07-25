@@ -155,12 +155,12 @@ class ReacherEnv(object):
     def step(self, action):
         '''
         Move the robot arm according to the action.
-        If control_mode=='joint_velocity', action is 7 dim of joint velocity values;
-        if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values.
+        If control_mode=='joint_velocity', action is 7 dim of joint velocity values + 1 dim of gripper rotation.
+        if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values + 1 dim of gripper rotation.
         '''
         if self.control_mode == 'end_position':
-            if action is None or action.shape[0]!=3:
-                action = list(np.random.uniform(-0.1, 0.1, 3))  # random
+            if action is None or action.shape[0]!=4:
+                action = list(np.random.uniform(-0.1, 0.1, 4))  # random
             self._move(action)
         elif self.control_mode == 'joint_velocity':
             self.agent.set_joint_target_velocities(action[:7])  # Execute action on arm, 7 DoF joints
