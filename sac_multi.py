@@ -240,7 +240,6 @@ class SAC_Trainer():
     
     def update(self, batch_size, reward_scale=10., auto_entropy=True, target_entropy=-2, gamma=0.99,soft_tau=1e-2):
         state, action, reward, next_state, done = self.replay_buffer.sample(batch_size)
-        # print('sample:', state, action,  reward, done)
 
         state      = torch.FloatTensor(state).to(device)
         next_state = torch.FloatTensor(next_state).to(device)
@@ -349,7 +348,6 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
             except KeyboardInterrupt:
                 print('Finished')
                 sac_trainer.save_model(model_path)
-    
             replay_buffer.push(state, action, reward, next_state, done)
             
             state = next_state
@@ -433,8 +431,8 @@ if __name__ == '__main__':
 
     # hyper-parameters for RL training, no need for sharing across processes
     max_episodes  = 100000
-    max_steps   = 40 
-    explore_steps = 200  # for random action sampling in the beginning of training
+    max_steps   = 30 
+    explore_steps = 500  # for random action sampling in the beginning of training
     batch_size=128
     update_itr = 1
     AUTO_ENTROPY=True

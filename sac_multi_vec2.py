@@ -7,12 +7,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
+from tqdm import trange
 
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
 import torch.multiprocessing as mp
 
-from wrapper import make_vec_env
+from wrapper2 import make_vec_env
 
 
 class ReplayBuffer(object):
@@ -184,15 +185,19 @@ class PolicyNetwork(nn.Module):
 if __name__ == '__main__':
     """Meta"""
     use_cuda = True
-    num_workers = 2 or mp.cpu_count()
+    num_workers = mp.cpu_count() * 2
+    menv = mp.cpu_count()
+    # num_workers = 4
+    # menv = 2
     state_dim = 17
     action_dim = 4
     action_range = 1.
     replay_buffer_size = 1e6
-    max_timesteps = 1e8
+    max_timesteps = 1e7
     max_steps = 30
     explore_steps = 0  # for random action sampling in the beginning of training
-    batch_size = 640
+    batch_size = 128 * int(menv ** 0.5)
+    warm_start = batch_size * 1
     update_itr = 1
     action_itr = 3
     AUTO_ENTROPY = True
@@ -210,7 +215,7 @@ if __name__ == '__main__':
     soft_tau = 1e-2
 
     """Init"""
-    env = make_vec_env(num_workers, max_steps)
+    env = make_vec_env(num_workers, max_steps, menv)
     if use_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
@@ -239,18 +244,18 @@ if __name__ == '__main__':
     """Start training"""
     o = env.reset()
     rewards = []
-    max_iter = int(max_timesteps // num_workers)
-    for eps in range(1, max_iter + 1):
+    max_iter = int(max_timesteps // menv)
+    for eps in trange(1, max_iter + 1):
         if eps > explore_steps:
             a = policy_net.module.get_action(o, deterministic=DETERMINISTIC)
         else:
-            a = policy_net.module.sample_action(num_workers)
+            a = policy_net.module.sample_action(menv)
         o_, r, d, info = env.step(a)
-        for i in range(num_workers):
+        for i in range(len(o)):
             replay_buffer.push(o[i], a[i], r[i], o_[i], d[i])
         o = o_
-        if len(replay_buffer) > batch_size:
-            for i in range(update_itr):
+        if len(replay_buffer) > warm_start:
+            for i in range(update_itr * int(menv ** 0.5)):
                 state, action, reward, next_state, done = replay_buffer.sample(batch_size)
 
                 predicted_q_value1 = soft_q_net1(state, action)
@@ -280,6 +285,7 @@ if __name__ == '__main__':
                 target_q_value = reward + (1 - done) * gamma * target_q_min
                 q_value_loss1 = soft_q_criterion1(predicted_q_value1, target_q_value.detach())
                 q_value_loss2 = soft_q_criterion2(predicted_q_value2, target_q_value.detach())
+
                 soft_q_optimizer1.zero_grad()
                 q_value_loss1.backward()
                 soft_q_optimizer1.step()
@@ -324,7 +330,7 @@ if __name__ == '__main__':
                     rewards.append(episode_reward)
                 else:
                     rewards.append(rewards[-1] * 0.9 + episode_reward * 0.1)
-                if len(rewards) % 20 == 0:
+                if len(rewards) % num_workers == 0:
                     clear_output(True)
                     plt.figure(figsize=(20, 5))
                     plt.plot(rewards)

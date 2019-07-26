@@ -52,6 +52,8 @@ class ReacherEnv(object):
         elif control_mode == 'joint_velocity':
             self.agent.set_control_loop_enabled(False)
             self.action_space = np.zeros(8)  # 7 DOF velocity control + 1 rotation of gripper
+        else:
+            raise NotImplementedError
         if self.visual_control == False:
             self.observation_space = np.zeros(17)  # position and velocity of 7 joints + position of the target
         else:
@@ -169,6 +171,8 @@ class ReacherEnv(object):
             ori_z+=action[7]  # change the orientation along z-axis
             self.tip_target.set_orientation([0,3.1415,ori_z])  # change orientation
             self.pr.step()
+        else:
+            raise NotImplementedError
 
         ax, ay, az = self.gripper.get_position()
         tx, ty, tz = self.target.get_position()
@@ -202,6 +206,9 @@ class ReacherEnv(object):
         elif np.sum(self.gripper.get_open_amount())<1.5: # if gripper is closed due to collision or esle, open it; .get_open_amount() return list of gripper joint values
             self.gripper.actuate(1, velocity=0.5)
             self.pr.step()
+
+        else:
+            pass
 
 
         reward -= np.sqrt(distance)
