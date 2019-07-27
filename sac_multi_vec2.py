@@ -191,7 +191,7 @@ if __name__ == '__main__':
     # menv = 2
     state_dim = 17
     action_dim = 4
-    action_range = 1.
+    action_range = 0.1
     replay_buffer_size = 1e6
     max_timesteps = 1e7
     max_steps = 30

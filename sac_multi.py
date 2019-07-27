@@ -426,7 +426,7 @@ if __name__ == '__main__':
 
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
-    action_range=1.
+    action_range=0.1
     env.shutdown()
 
     # hyper-parameters for RL training, no need for sharing across processes

@@ -335,7 +335,7 @@ update_itr = 1
 AUTO_ENTROPY=True
 DETERMINISTIC=False
 hidden_dim = 512
-action_range=1.
+action_range=0.1
 rewards     = []
 
 

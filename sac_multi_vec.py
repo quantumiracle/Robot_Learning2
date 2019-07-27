@@ -187,7 +187,7 @@ if __name__ == '__main__':
     num_workers = 2 or mp.cpu_count()
     state_dim = 17
     action_dim = 4
-    action_range = 1.
+    action_range = 0.1
     replay_buffer_size = 1e6
     max_timesteps = 1e8
     max_steps = 30
