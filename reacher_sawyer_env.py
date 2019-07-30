@@ -1,13 +1,5 @@
 """
-An example of how one might use PyRep to create their RL environments.
-In this case, the Franka Panda must reach a randomly placed target.
-This script contains examples of:
-    - RL environment example.
-    - Scene manipulation.
-    - Environment resets.
-    - Setting joint properties (control loop disabled, motor locked at 0 vel)
-
-following common format of Openai gym
+The environment of Sawyer Arm + Baxter Gripper for graping object.
 """
 from os.path import dirname, join, abspath
 from pyrep import PyRep
@@ -30,35 +22,35 @@ class ReacherEnv(object):
         :headless: bool, if True, no visualization, else with visualization.
         :control mode: str, 'end_position' or 'joint_velocity'.
         '''
-        self.reward_range=10.0
+        self.reward_offset=10.0  # reward of achieving the grasping object
         self.metadata=[]  # gym env format
-        self.control_mode = control_mode
+        self.control_mode = control_mode  # the control mode of robotic arm: 'end_position' or 'joint_velocity'
         self.pr = PyRep()
         if control_mode == 'end_position':  # need to use different scene, the one with all joints in inverse kinematics mode
             SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new_ik.ttt')
         elif control_mode == 'joint_velocity': # the scene with all joints in force/torche mode for forward kinematics
             SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new.ttt')
-        self.pr.launch(SCENE_FILE, headless=headless)
-        self.pr.start()
-        self.agent = Sawyer()
-        self.gripper = BaxterGripper()
+        self.pr.launch(SCENE_FILE, headless=headless)  # lunch the scene, headless means no visualization
+        self.pr.start()       # start the scene
+        self.agent = Sawyer()  # get the robot arm in the scene
+        self.gripper = BaxterGripper()  # get the gripper in the scene
         self.gripper_left_pad = Shape('BaxterGripper_leftPad')  # the pad on the gripper finger
         self.proximity_sensor = ProximitySensor('BaxterGripper_attachProxSensor')  # need the name of the sensor here
         self.vision_sensor = VisionSensor('Vision_sensor')  # need the name of the sensor here
-        if control_mode == 'end_position':
+        if control_mode == 'end_position':  # control the robot arm by the position of its end using inverse kinematics
             self.agent.set_control_loop_enabled(True)  # if false, won't work
             self.action_space = np.zeros(4)  # 3 DOF end position control + 1 rotation of gripper
-        elif control_mode == 'joint_velocity':
+        elif control_mode == 'joint_velocity':  # control the robot arm by directly setting velocity values on each joint, forward kinematics
             self.agent.set_control_loop_enabled(False)
             self.action_space = np.zeros(8)  # 7 DOF velocity control + 1 rotation of gripper
         else:
             raise NotImplementedError
         self.observation_space = np.zeros(17)  # position and velocity of 7 joints + position of the target
         self.agent.set_motor_locked_at_zero_velocity(True)
-        self.target = Shape('target')  # object
-        self.tip_target = Dummy('Sawyer_target')   # the target point of the tip to move towards
+        self.target = Shape('target')  # get the target object
         self.agent_ee_tip = self.agent.get_tip()  # a part of robot as the end of inverse kinematics chain for controlling
-        self.tip_pos = self.agent_ee_tip.get_position()
+        self.tip_target = Dummy('Sawyer_target')   # the target point of the tip (end of the robot arm) to move towards
+        self.tip_pos = self.agent_ee_tip.get_position()  # tip x,y,z position
         self.tip_quat=self.agent_ee_tip.get_quaternion()  # tip rotation as quaternion, if not control the rotation
         
         # set a proper initial gesture/tip position
@@ -68,7 +60,6 @@ class ReacherEnv(object):
         self.tip_target.set_position(initial_pos)
         self.tip_target.set_orientation([0,3.1415,1.5708])  # make gripper face downwards
         self.pr.step()
-
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.initial_gripper_positions = self.gripper.get_position()
 
@@ -76,9 +67,9 @@ class ReacherEnv(object):
         '''
          Return state containing arm joint angles/velocities & target position.
          '''
-        return np.array(self.agent.get_joint_positions() +
-                self.agent.get_joint_velocities() +
-                self.target.get_position())
+        return np.array(self.agent.get_joint_positions() +  # list
+                self.agent.get_joint_velocities() +  # list
+                self.target.get_position())  # list
 
     def _is_holding(self):
         '''
@@ -111,7 +102,6 @@ class ReacherEnv(object):
         '''
         robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
         moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step; the larger it is, the more accurate for each movement.
-        # print(moving_loop_itr)
         small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
         pos=self.agent_ee_tip.get_position()
 
@@ -173,8 +163,8 @@ class ReacherEnv(object):
 
         ax, ay, az = self.gripper.get_position()
         tx, ty, tz = self.target.get_position()
-        # Reward is negative distance to target
-        distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
+
+        distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2  # distance between the gripper and the target object
         done=False
         
         current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
@@ -193,9 +183,8 @@ class ReacherEnv(object):
 
             if self._is_holding():
                 # reward for hold here!
-                reward += self.reward_range
+                reward += self.reward_offset  # extra reward for grasping the object
                 done=True
-            
             else:
                 self.gripper.actuate(1, velocity=0.5)
                 self.pr.step()
@@ -207,7 +196,7 @@ class ReacherEnv(object):
         else:
             pass
 
-        reward -= np.sqrt(distance)
+        reward -= np.sqrt(distance) # Reward is negative distance to target
         return self._get_state(), reward, done, {}
 
     def shutdown(self):
