@@ -1,5 +1,6 @@
 """
 The environment of Sawyer Arm + Baxter Gripper for graping object.
+With a bounding box of the arange that the gripper cannot move outside.
 """
 from os.path import dirname, join, abspath
 from pyrep import PyRep
@@ -100,31 +101,37 @@ class ReacherEnv(object):
         Move the tip according to the action with inverse kinematics for 'end_position' control;
         with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
         '''
+        pos=self.gripper.get_position()
+        bounding_offset=0.1
         robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
-        moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step; the larger it is, the more accurate for each movement.
-        small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
-        pos=self.agent_ee_tip.get_position()
+        # check if state+action will be within of the bounding box, if so, move normally; else no action.
+        #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
+        if pos[0]+action[0]>POS_MIN[0]-bounding_offset and pos[0]+action[0]<POS_MAX[0]+bounding_offset  \
+            and pos[1]+action[1] > POS_MIN[1]-bounding_offset and pos[1]+action[1] < POS_MAX[1]+bounding_offset  \
+            and pos[2]+action[2] > POS_MIN[2]-bounding_offset:
 
-        ''' 
-        there is a mismatch between the object set_orientation() and get_orientation():
-        the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
-        '''
-        ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
-        assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
+            moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step; the larger it is, the more accurate for each movement.
+            small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
 
-        # print('before: ',self.agent_ee_tip.get_position())
-        for _ in range(moving_loop_itr):
-            for idx in range(len(pos)):
-                pos[idx] += small_step[idx]
-            self.tip_target.set_position(pos)
-            self.pr.step()
-            ori_z+=small_step[3]  # change the orientation along z-axis with a small step
-            self.tip_target.set_orientation([0,3.1415,ori_z])  # make gripper face downwards
-            self.pr.step()
-        # print(self.tip_target.get_orientation())
-        # print(self.agent_ee_tip.get_orientation())
-        # print('target: ', pos)
-        # print('after: ', self.agent_ee_tip.get_position())
+            ''' 
+            there is a mismatch between the object set_orientation() and get_orientation():
+            the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
+            '''
+            ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
+            assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
+
+            for _ in range(moving_loop_itr):
+                for idx in range(len(pos)):
+                    pos[idx] += small_step[idx]
+                self.tip_target.set_position(pos)
+                self.pr.step()
+                ori_z+=small_step[3]  # change the orientation along z-axis with a small step
+                self.tip_target.set_orientation([0,3.1415,ori_z])  # make gripper face downwards
+                self.pr.step()
+
+        else:
+            print("Potential Movement Out of the Bounding Box!")
+            pass # no action if potentially out of the bounding box
 
     def reset(self):
         '''

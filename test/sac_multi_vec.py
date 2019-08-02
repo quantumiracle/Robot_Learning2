@@ -192,8 +192,8 @@ if __name__ == '__main__':
     max_timesteps = 1e8
     max_steps = 150
     explore_steps = 0  # for random action sampling in the beginning of training
-    batch_size = 640
-    update_itr = 1
+    batch_size = 128   # 640
+    update_itr = 2
     action_itr = 3
     AUTO_ENTROPY = True
     DETERMINISTIC = False
