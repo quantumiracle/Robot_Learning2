@@ -179,7 +179,8 @@ class TimeLimit(gym.Wrapper):
 
 
 def make_env(max_steps, seed):
-    from reacher_sawyer_env import ReacherEnv
+    # from reacher_sawyer_env import ReacherEnv
+    from reacher_sawyer_env_boundingbox import ReacherEnv
     # from reacher_sawyer_visual_env import ReacherEnv
     env = ReacherEnv(headless=True, control_mode='end_position')
     return Monitor(TimeLimit(env, max_steps))

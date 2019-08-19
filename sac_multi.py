@@ -18,7 +18,8 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 from IPython.display import display
 
-from reacher_sawyer_env import ReacherEnv
+# from reacher_sawyer_env import ReacherEnv
+from reacher_sawyer_env_boundingbox import ReacherEnv
 import argparse
 import time
 
