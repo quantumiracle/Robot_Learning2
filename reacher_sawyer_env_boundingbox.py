@@ -24,6 +24,7 @@ class ReacherEnv(object):
         :control mode: str, 'end_position' or 'joint_velocity'.
         '''
         self.reward_offset=10.0  # reward of achieving the grasping object
+        self.reward_range = self.reward_offset # reward range for register gym env when using vectorized env wrapper
         self.metadata=[]  # gym env format
         self.control_mode = control_mode  # the control mode of robotic arm: 'end_position' or 'joint_velocity'
         self.pr = PyRep()
@@ -130,7 +131,7 @@ class ReacherEnv(object):
                 self.pr.step()
 
         else:
-            print("Potential Movement Out of the Bounding Box!")
+            # print("Potential Movement Out of the Bounding Box!")
             pass # no action if potentially out of the bounding box
 
     def reset(self):

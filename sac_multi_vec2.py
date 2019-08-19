@@ -187,8 +187,8 @@ if __name__ == '__main__':
     use_cuda = True
     num_workers = mp.cpu_count() * 2
     menv = mp.cpu_count()
-    # num_workers = 4
-    # menv = 2
+    num_workers = 4
+    menv = 2
     state_dim = 17
     action_dim = 4
     action_range = 0.1
