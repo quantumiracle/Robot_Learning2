@@ -203,8 +203,8 @@ class ReacherEnv(object):
 
         else:
             pass
-
         reward -= np.sqrt(distance) # Reward is negative distance to target
+        reward = np.maximum(reward, -2)  # set lower bound of reward, prevent numerical problem of the simulator
         return self._get_state(), reward, done, {}
 
     def shutdown(self):

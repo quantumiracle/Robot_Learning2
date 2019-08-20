@@ -12,8 +12,16 @@ from tqdm import trange
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
 import torch.multiprocessing as mp
+import argparse
 
 from wrapper2 import make_vec_env
+
+
+parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
+parser.add_argument('--train', dest='train', action='store_true', default=False)
+parser.add_argument('--test', dest='test', action='store_true', default=False)
+
+args = parser.parse_args()
 
 
 class ReplayBuffer(object):
@@ -214,125 +222,158 @@ if __name__ == '__main__':
     gamma = 0.99
     soft_tau = 1e-2
 
-    """Init"""
-    env = make_vec_env(num_workers, max_steps, menv)
     if use_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device("cpu")
-    replay_buffer = ReplayBuffer(replay_buffer_size, device)
-    soft_q_net1 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
-    soft_q_net2 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
-    target_soft_q_net1 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
-    target_soft_q_net2 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
-    policy_net = nn.DataParallel(
-        PolicyNetwork(state_dim, action_dim, hidden_dim, action_range).to(device))
-    log_alpha = torch.zeros(1, dtype=torch.float32, requires_grad=True, device=device)
-    print('Soft Q Network (1,2): ', soft_q_net1)
-    print('Policy Network: ', policy_net)
-    soft_q_optimizer1 = optim.Adam(soft_q_net1.parameters(), lr=soft_q_lr)
-    soft_q_optimizer2 = optim.Adam(soft_q_net2.parameters(), lr=soft_q_lr)
-    policy_optimizer = optim.Adam(policy_net.parameters(), lr=policy_lr)
-    alpha_optimizer = optim.Adam([log_alpha], lr=alpha_lr)
 
-    """Sync target network"""
-    for target_param, param in zip(target_soft_q_net1.parameters(), soft_q_net1.parameters()):
-        target_param.data.copy_(param.data)
-    for target_param, param in zip(target_soft_q_net2.parameters(), soft_q_net2.parameters()):
-        target_param.data.copy_(param.data)
+    if args.train:
 
-    """Start training"""
-    o = env.reset()
-    rewards = []
-    max_iter = int(max_timesteps // menv)
-    for eps in trange(1, max_iter + 1):
-        if eps > explore_steps:
-            a = policy_net.module.get_action(o, deterministic=DETERMINISTIC)
-        else:
-            a = policy_net.module.sample_action(menv)
-        o_, r, d, info = env.step(a)
-        for i in range(len(o)):
-            replay_buffer.push(o[i], a[i], r[i], o_[i], d[i])
-        o = o_
-        if len(replay_buffer) > warm_start:
-            for i in range(update_itr * int(menv ** 0.5)):
-                state, action, reward, next_state, done = replay_buffer.sample(batch_size)
+        """Init"""
+        env = make_vec_env(num_workers, max_steps, menv)
 
-                predicted_q_value1 = soft_q_net1(state, action)
-                predicted_q_value2 = soft_q_net2(state, action)
-                new_action, log_prob, z, mean, log_std = policy_net.module.evaluate(state)
-                new_next_action, next_log_prob, _, _, _ = policy_net.module.evaluate(next_state)
-                # normalize with batch mean and std
-                reward = reward_scale * (reward - reward.mean(dim=0)) / (reward.std(dim=0) + 1e-6)
-                # Updating alpha wrt entropy
-                # alpha = 0.0
-                # trade-off between exploration (max entropy) and exploitation (max Q)
-                if AUTO_ENTROPY is True:
-                    alpha_loss = -(log_alpha * (log_prob - 1.0 * action_dim).detach()).mean()
-                    # print('alpha loss: ',alpha_loss)
-                    alpha_optimizer.zero_grad()
-                    alpha_loss.backward()
-                    alpha_optimizer.step()
-                    alpha = log_alpha.exp()
-                else:
-                    alpha = 1.
-                    alpha_loss = 0
+        replay_buffer = ReplayBuffer(replay_buffer_size, device)
+        soft_q_net1 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        soft_q_net2 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        target_soft_q_net1 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        target_soft_q_net2 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        policy_net = nn.DataParallel(
+            PolicyNetwork(state_dim, action_dim, hidden_dim, action_range).to(device))
+        log_alpha = torch.zeros(1, dtype=torch.float32, requires_grad=True, device=device)
+        print('Soft Q Network (1,2): ', soft_q_net1)
+        print('Policy Network: ', policy_net)
+        soft_q_optimizer1 = optim.Adam(soft_q_net1.parameters(), lr=soft_q_lr)
+        soft_q_optimizer2 = optim.Adam(soft_q_net2.parameters(), lr=soft_q_lr)
+        policy_optimizer = optim.Adam(policy_net.parameters(), lr=policy_lr)
+        alpha_optimizer = optim.Adam([log_alpha], lr=alpha_lr)
 
-                # Training Q Function
-                target_q_min = torch.min(
-                    target_soft_q_net1(next_state, new_next_action),
-                    target_soft_q_net2(next_state, new_next_action)) - alpha * next_log_prob
-                target_q_value = reward + (1 - done) * gamma * target_q_min
-                q_value_loss1 = soft_q_criterion1(predicted_q_value1, target_q_value.detach())
-                q_value_loss2 = soft_q_criterion2(predicted_q_value2, target_q_value.detach())
+        """Sync target network"""
+        for target_param, param in zip(target_soft_q_net1.parameters(), soft_q_net1.parameters()):
+            target_param.data.copy_(param.data)
+        for target_param, param in zip(target_soft_q_net2.parameters(), soft_q_net2.parameters()):
+            target_param.data.copy_(param.data)
 
-                soft_q_optimizer1.zero_grad()
-                q_value_loss1.backward()
-                soft_q_optimizer1.step()
-                soft_q_optimizer2.zero_grad()
-                q_value_loss2.backward()
-                soft_q_optimizer2.step()
+        """Start training"""
+        o = env.reset()
+        rewards = []
+        max_iter = int(max_timesteps // menv)
+        for eps in trange(1, max_iter + 1):
+            if eps > explore_steps:
+                a = policy_net.module.get_action(o, deterministic=DETERMINISTIC)
+            else:
+                a = policy_net.module.sample_action(menv)
+            o_, r, d, info = env.step(a)
+            for i in range(len(o)):
+                replay_buffer.push(o[i], a[i], r[i], o_[i], d[i])
+            o = o_
+            if len(replay_buffer) > warm_start:
+                for i in range(update_itr * int(menv ** 0.5)):
+                    state, action, reward, next_state, done = replay_buffer.sample(batch_size)
 
-                # Training Policy Function
-                predicted_new_q_value = torch.min(soft_q_net1(state, new_action),
-                                                  soft_q_net2(state, new_action))
-                policy_loss = (alpha * log_prob - predicted_new_q_value).mean()
+                    predicted_q_value1 = soft_q_net1(state, action)
+                    predicted_q_value2 = soft_q_net2(state, action)
+                    new_action, log_prob, z, mean, log_std = policy_net.module.evaluate(state)
+                    new_next_action, next_log_prob, _, _, _ = policy_net.module.evaluate(next_state)
+                    # normalize with batch mean and std
+                    reward = reward_scale * (reward - reward.mean(dim=0)) / (reward.std(dim=0) + 1e-6)
+                    # Updating alpha wrt entropy
+                    # alpha = 0.0
+                    # trade-off between exploration (max entropy) and exploitation (max Q)
+                    if AUTO_ENTROPY is True:
+                        alpha_loss = -(log_alpha * (log_prob - 1.0 * action_dim).detach()).mean()
+                        # print('alpha loss: ',alpha_loss)
+                        alpha_optimizer.zero_grad()
+                        alpha_loss.backward()
+                        alpha_optimizer.step()
+                        alpha = log_alpha.exp()
+                    else:
+                        alpha = 1.
+                        alpha_loss = 0
 
-                policy_optimizer.zero_grad()
-                policy_loss.backward()
-                policy_optimizer.step()
+                    # Training Q Function
+                    target_q_min = torch.min(
+                        target_soft_q_net1(next_state, new_next_action),
+                        target_soft_q_net2(next_state, new_next_action)) - alpha * next_log_prob
+                    target_q_value = reward + (1 - done) * gamma * target_q_min
+                    q_value_loss1 = soft_q_criterion1(predicted_q_value1, target_q_value.detach())
+                    q_value_loss2 = soft_q_criterion2(predicted_q_value2, target_q_value.detach())
 
-                # Soft update the target value net
-                for target_param, param in zip(target_soft_q_net1.parameters(),
-                                               soft_q_net1.parameters()):
-                    target_param.data.copy_(  # copy data value into target parameters
-                        target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-                    )
-                for target_param, param in zip(target_soft_q_net2.parameters(),
-                                               soft_q_net2.parameters()):
-                    target_param.data.copy_(  # copy data value into target parameters
-                        target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-                    )
+                    soft_q_optimizer1.zero_grad()
+                    q_value_loss1.backward()
+                    soft_q_optimizer1.step()
+                    soft_q_optimizer2.zero_grad()
+                    q_value_loss2.backward()
+                    soft_q_optimizer2.step()
 
-        if eps % save_interval:
-            torch.save(soft_q_net1.state_dict(), model_path + '_q1')
-            torch.save(soft_q_net2.state_dict(), model_path + '_q2')
-            torch.save(policy_net.state_dict(), model_path + '_policy')
+                    # Training Policy Function
+                    predicted_new_q_value = torch.min(soft_q_net1(state, new_action),
+                                                    soft_q_net2(state, new_action))
+                    policy_loss = (alpha * log_prob - predicted_new_q_value).mean()
 
-        
-        for i, d in enumerate(info):
-            if d.get('episode'):
-                episode_reward = d['episode']['r']
-                episode_length = d['episode']['l']
-                print('worker {} episode reward {} episode length {}'
-                      .format(i, episode_reward, episode_length))
-                if len(rewards) == 0:
-                    rewards.append(episode_reward)
-                else:
-                    rewards.append(rewards[-1] * 0.9 + episode_reward * 0.1)
-                if len(rewards) % num_workers == 0:
-                    clear_output(True)
-                    plt.figure(figsize=(20, 5))
-                    plt.plot(rewards)
-                    plt.savefig('sac_v2_multi.png')
-                    plt.clf()
+                    policy_optimizer.zero_grad()
+                    policy_loss.backward()
+                    policy_optimizer.step()
+
+                    # Soft update the target value net
+                    for target_param, param in zip(target_soft_q_net1.parameters(),
+                                                soft_q_net1.parameters()):
+                        target_param.data.copy_(  # copy data value into target parameters
+                            target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+                        )
+                    for target_param, param in zip(target_soft_q_net2.parameters(),
+                                                soft_q_net2.parameters()):
+                        target_param.data.copy_(  # copy data value into target parameters
+                            target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+                        )
+
+            if eps % save_interval:
+                torch.save(soft_q_net1.state_dict(), model_path + '_q1')
+                torch.save(soft_q_net2.state_dict(), model_path + '_q2')
+                torch.save(policy_net.state_dict(), model_path + '_policy')
+
+            
+            for i, d in enumerate(info):
+                if d.get('episode'):
+                    episode_reward = d['episode']['r']
+                    episode_length = d['episode']['l']
+                    print('worker {} episode reward {} episode length {}'
+                        .format(i, episode_reward, episode_length))
+                    if len(rewards) == 0:
+                        rewards.append(episode_reward)
+                    else:
+                        rewards.append(rewards[-1] * 0.9 + episode_reward * 0.1)
+                    if len(rewards) % num_workers == 0:
+                        clear_output(True)
+                        plt.figure(figsize=(20, 5))
+                        plt.plot(rewards)
+                        plt.savefig('sac_v2_multi.png')
+                        plt.clf()
+
+    if args.test:
+        from reacher_sawyer_env_boundingbox import ReacherEnv
+        env = ReacherEnv(headless=False, control_mode='end_position')  # visualize in testing
+        soft_q_net1 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        soft_q_net2 = nn.DataParallel(SoftQNetwork(state_dim, action_dim, hidden_dim).to(device))
+        target_soft_q_net1 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
+        target_soft_q_net2 = SoftQNetwork(state_dim, action_dim, hidden_dim).to(device)
+        policy_net = nn.DataParallel(
+            PolicyNetwork(state_dim, action_dim, hidden_dim, action_range).to(device))
+        # single process for testing
+        soft_q_net1.load_state_dict(torch.load(model_path+'_q1'))
+        soft_q_net2.load_state_dict(torch.load(model_path+'_q2'))
+        policy_net.load_state_dict(torch.load(model_path+'_policy'))
+        soft_q_net1 = soft_q_net1.module
+        soft_q_net2 = soft_q_net2.module
+        policy_net = policy_net.module
+        for eps in range(10):
+            state =  env.reset()
+            episode_reward = 0
+
+            for step in range(max_steps):
+                action = policy_net.get_action(state, deterministic = DETERMINISTIC)
+                next_state, reward, done, _ = env.step(action)  
+
+                episode_reward += reward
+                state=next_state
+
+            print('Episode: ', eps, '| Episode Reward: ', episode_reward)
