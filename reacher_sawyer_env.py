@@ -138,6 +138,7 @@ class ReacherEnv(object):
          '''
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
+        self.target.set_orientation([0,0,0])
         self.agent.set_joint_positions(self.initial_joint_positions)
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision

@@ -68,7 +68,7 @@ class ReacherEnv(object):
         
         # set a proper initial gesture/tip position
         agent_position=self.agent.get_position()
-        initial_pos_offset = [0.6, 0.2, 0.4]  # initial relative position of gripper to the whole arm
+        initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
         initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
         self.tip_target.set_position(initial_pos)
         self.tip_target.set_orientation([0,3.1415,1.5708], reset_dynamics=True)  # make gripper face downwards
@@ -148,6 +148,7 @@ class ReacherEnv(object):
         # Get a random position within a cuboid and set the target position
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
+        self.target.set_orientation([0,0,0])
         # changing the color or texture for domain randomization
         self.target.set_color(np.random.uniform(low=0, high=1, size=3).tolist()) # set [r,g,b] 3 channel values of object color
         self.agent.set_joint_positions(self.initial_joint_positions)

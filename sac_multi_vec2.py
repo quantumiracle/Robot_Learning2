@@ -13,6 +13,7 @@ from IPython.display import clear_output
 import matplotlib.pyplot as plt
 import torch.multiprocessing as mp
 import argparse
+import pickle
 
 from wrapper2 import make_vec_env
 
@@ -210,6 +211,7 @@ if __name__ == '__main__':
     action_itr = 3
     AUTO_ENTROPY = True
     DETERMINISTIC = False
+    USE_DEMONS = True  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_v2_multi_vec'
     soft_q_lr = 3e-4
@@ -269,6 +271,16 @@ if __name__ == '__main__':
             if len(replay_buffer) > warm_start:
                 for i in range(update_itr * int(menv ** 0.5)):
                     state, action, reward, next_state, done = replay_buffer.sample(batch_size)
+
+                    if USE_DEMONS==True:  # using demonstration data by feeding into training buffer
+                        data_file=open('./demons_data/demon_data.pickle', "rb")
+                        demons_data = pickle.load(data_file)
+                        state_, action_, reward_, next_state_, done_=map(np.stack, zip(*demons_data))
+                        state = torch.cat((state, torch.from_numpy(np.asarray(state_)).to(device).float()), dim=0)
+                        action = torch.cat((action, torch.from_numpy(np.asarray(action_)).to(device).float()), dim=0)
+                        reward = torch.cat((reward, torch.from_numpy(np.asarray(reward_[:, np.newaxis])).to(device).float()), dim=0)
+                        next_state = torch.cat((next_state, torch.from_numpy(np.asarray(next_state_)).to(device).float()), dim=0)
+                        done = torch.cat((done, torch.from_numpy(np.asarray(done_[:, np.newaxis])).to(device).float()), dim=0)
 
                     predicted_q_value1 = soft_q_net1(state, action)
                     predicted_q_value2 = soft_q_net2(state, action)

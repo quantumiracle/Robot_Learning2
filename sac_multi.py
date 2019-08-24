@@ -22,6 +22,7 @@ from IPython.display import display
 from reacher_sawyer_env_boundingbox import ReacherEnv
 import argparse
 import time
+import pickle
 
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process
@@ -239,8 +240,19 @@ class SAC_Trainer():
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=alpha_lr)
 
     
-    def update(self, batch_size, reward_scale=10., auto_entropy=True, target_entropy=-2, gamma=0.99,soft_tau=1e-2):
+    def update(self, batch_size, reward_scale=10., auto_entropy=True, use_demons=False, target_entropy=-2, gamma=0.99,soft_tau=1e-2):
         state, action, reward, next_state, done = self.replay_buffer.sample(batch_size)
+        
+        if use_demons==True:  # using demonstration data by feeding into training buffer
+            data_file=open('./demons_data/demon_data.pickle', "rb")
+            demons_data = pickle.load(data_file)
+            state_, action_, reward_, next_state_, done_=map(np.stack, zip(*demons_data))
+            state = np.concatenate((state, state_), axis=0)
+            action = np.concatenate((action, action_), axis=0)
+            reward = np.concatenate((reward, reward_), axis=0)
+            next_state = np.concatenate((next_state, next_state_), axis=0)
+            done = np.concatenate((done, done_), axis=0)
+
 
         state      = torch.FloatTensor(state).to(device)
         next_state = torch.FloatTensor(next_state).to(device)
@@ -319,7 +331,7 @@ class SAC_Trainer():
 
 
 def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_steps, batch_size, explore_steps, \
-            update_itr, AUTO_ENTROPY, DETERMINISTIC, hidden_dim, model_path):
+            update_itr, AUTO_ENTROPY, DETERMINISTIC, USE_DEMONS, hidden_dim, model_path):
     '''
     the function for sampling with multi-processing
     '''
@@ -359,7 +371,7 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
             # if len(replay_buffer) > batch_size:
             if replay_buffer.get_length() > batch_size:
                 for i in range(update_itr):
-                    _=sac_trainer.update(batch_size, reward_scale=10., auto_entropy=AUTO_ENTROPY, target_entropy=-1.*action_dim)
+                    _=sac_trainer.update(batch_size, reward_scale=10., auto_entropy=AUTO_ENTROPY, use_demons=USE_DEMONS, target_entropy=-1.*action_dim)
             
             if eps % 10 == 0 and eps>0:
                 # plot(rewards, id)
@@ -433,14 +445,16 @@ if __name__ == '__main__':
     # hyper-parameters for RL training, no need for sharing across processes
     max_episodes  = 100000
     max_steps   = 30 
-    explore_steps = 500  # for random action sampling in the beginning of training
+    explore_steps = 0  # for random action sampling in the beginning of training
     batch_size=128
     update_itr = 1
     AUTO_ENTROPY=True
     DETERMINISTIC=False
+    USE_DEMONS = True  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_multi'
     num_workers=3  # or: mp.cpu_count() 
+    
 
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
@@ -464,7 +478,7 @@ if __name__ == '__main__':
 
         for i in range(num_workers):
             process = Process(target=worker, args=(i, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_steps, \
-            batch_size, explore_steps, update_itr, AUTO_ENTROPY, DETERMINISTIC, hidden_dim, model_path))  # the args contain shared and not shared
+            batch_size, explore_steps, update_itr, AUTO_ENTROPY, DETERMINISTIC, USE_DEMONS, hidden_dim, model_path))  # the args contain shared and not shared
             process.daemon=True  # all processes closed when the main stops
             processes.append(process)
 
