@@ -440,6 +440,7 @@ if __name__ == '__main__':
     DETERMINISTIC=False
     hidden_dim = 512
     model_path = './model/sac_multi'
+    num_workers=3  # or: mp.cpu_count() 
 
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
@@ -458,8 +459,6 @@ if __name__ == '__main__':
         ShareParameters(sac_trainer.alpha_optimizer)
 
         rewards_queue=mp.Queue()  # used for get rewards from all processes and plot the curve
-
-        num_workers=2  # or: mp.cpu_count()
         processes=[]
         rewards=[]
 
@@ -485,7 +484,7 @@ if __name__ == '__main__':
         sac_trainer.save_model(model_path)
 
     if args.test:
-        env = ReacherEnv(headless=False) # for visualizing in test
+        env = ReacherEnv(headless=False, control_mode='end_position') # for visualizing in test
         # single process for testing
         sac_trainer.load_model(model_path)
         for eps in range(10):

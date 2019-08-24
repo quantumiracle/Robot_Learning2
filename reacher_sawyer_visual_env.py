@@ -71,7 +71,7 @@ class ReacherEnv(object):
         initial_pos_offset = [0.6, 0.2, 0.4]  # initial relative position of gripper to the whole arm
         initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
         self.tip_target.set_position(initial_pos)
-        self.tip_target.set_orientation([0,3.1415,1.5708])  # make gripper face downwards
+        self.tip_target.set_orientation([0,3.1415,1.5708], reset_dynamics=True)  # make gripper face downwards
         self.pr.step()
 
         self.initial_joint_positions = self.agent.get_joint_positions()
@@ -134,9 +134,14 @@ class ReacherEnv(object):
                 pos[idx] += small_step[idx]
             self.tip_target.set_position(pos)
             self.pr.step()
-            ori_z+=small_step[3]  # change the orientation along z-axis with a small step
-            self.tip_target.set_orientation([0,3.1415,ori_z])  # make gripper face downwards
-            self.pr.step()
+            ''' deprecated! no need to use small steps for the rotation with reset_dynamics=True'''
+            # ori_z+=small_step[3]  # change the orientation along z-axis with a small step
+            # self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
+            # self.pr.step()
+        ''' one big step for z-rotation is enough, with reset_dynamics=True, set the rotation instantaneously '''
+        ori_z+=action[3]
+        self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
+        self.pr.step()
 
 
     def reset(self):
@@ -169,7 +174,7 @@ class ReacherEnv(object):
             self.pr.step()
             ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
             ori_z+=action[7]  # change the orientation along z-axis
-            self.tip_target.set_orientation([0,3.1415,ori_z])  # change orientation
+            self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # change orientation
             self.pr.step()
         else:
             raise NotImplementedError

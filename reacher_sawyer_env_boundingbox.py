@@ -57,11 +57,12 @@ class ReacherEnv(object):
         
         # set a proper initial gesture/tip position
         agent_position=self.agent.get_position()
-        initial_pos_offset = [0.6, 0.2, 0.4]  # initial relative position of gripper to the whole arm
+        initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
         initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
         self.tip_target.set_position(initial_pos)
-        self.tip_target.set_orientation([0,3.1415,1.5708])  # make gripper face downwards
-        self.pr.step()
+        # one big step for rotation setting is enough, with reset_dynamics=True, set the rotation instantaneously
+        self.tip_target.set_orientation([0,3.1415,1.5708], reset_dynamics=True)  # make gripper face downwards
+        self.pr.step()    
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.initial_gripper_positions = self.gripper.get_position()
 
@@ -78,7 +79,7 @@ class ReacherEnv(object):
          Return is holding the target or not, return bool.
         '''
 
-        # Nothe that the collision check is not always accurate all the time, 
+        # Note that the collision check is not always accurate all the time, 
         # for continuous conllision, maybe only the first 4-5 frames of collision can be detected
         pad_collide_object = self.gripper_left_pad.check_collision(self.target)
         if  pad_collide_object and self.proximity_sensor.is_detected(self.target)==True:
@@ -103,7 +104,7 @@ class ReacherEnv(object):
         with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
         '''
         pos=self.gripper.get_position()
-        bounding_offset=0.1
+        bounding_offset=0.2
         robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
         # check if state+action will be within of the bounding box, if so, move normally; else no action.
         #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
@@ -126,9 +127,14 @@ class ReacherEnv(object):
                     pos[idx] += small_step[idx]
                 self.tip_target.set_position(pos)
                 self.pr.step()
+                ''' deprecated! no need to use small steps for the rotation with reset_dynamics=True'''
                 ori_z+=small_step[3]  # change the orientation along z-axis with a small step
-                self.tip_target.set_orientation([0,3.1415,ori_z])  # make gripper face downwards
+                self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
                 self.pr.step()
+            ''' one big step for z-rotation is enough, with reset_dynamics=True, set the rotation instantaneously '''
+            # ori_z+=action[3]
+            # self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
+            # self.pr.step()
 
         else:
             # print("Potential Movement Out of the Bounding Box!")
@@ -149,8 +155,8 @@ class ReacherEnv(object):
     def step(self, action):
         '''
         Move the robot arm according to the action.
-        If control_mode=='joint_velocity', action is 7 dim of joint velocity values;
-        if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values.
+        If control_mode=='joint_velocity', action is 7 dim of joint velocity values + 1 dim rotation of gripper;
+        if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values + 1 dim rotation of gripper;
         '''
         if self.control_mode == 'end_position':
             if action is None or action.shape[0]!=4:
@@ -163,7 +169,7 @@ class ReacherEnv(object):
             self.pr.step()
             ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
             ori_z+=action[7]  # change the orientation along z-axis
-            self.tip_target.set_orientation([0,3.1415,ori_z])  # change orientation
+            self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # change orientation
             self.pr.step()
 
         else:
@@ -217,7 +223,7 @@ if __name__ == '__main__':
     env.reset()
     for step in range(1000):
         print(step)
-        action=np.random.uniform(-0.1,0.1,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
+        action=np.random.uniform(-0.2,0.2,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
         try:
             env.step(action)
         except KeyboardInterrupt:
