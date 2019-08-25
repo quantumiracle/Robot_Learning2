@@ -31,6 +31,8 @@ class ReacherEnv(object):
         :visual_control: bool, controlled by visual state or not (vector state).
         '''
         self.reward_range=10.0
+        self.reward_range = self.reward_offset # reward range for register gym env when using vectorized env wrapper
+        self.fall_down_offset = 0.1 # for judging the target object fall off the table
         self.metadata=[]  # gym env format
         self.visual_control = visual_control
         self.control_mode = control_mode
@@ -155,6 +157,9 @@ class ReacherEnv(object):
         # self.table.set_collidable(True)
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
+        while np.sum(self.gripper.get_open_amount())<1.5:
+            self.gripper.actuate(1, velocity=0.5)  # open the gripper
+            self.pr.step()
         if self.visual_control:
             return self._get_visual_state()
         else:
@@ -185,6 +190,10 @@ class ReacherEnv(object):
         # Reward is negative distance to target
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
         done=False
+
+        if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
+            done = True
+
         # print(self.proximity_sensor.is_detected(self.target))
         current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
         plt.imshow(current_vision)

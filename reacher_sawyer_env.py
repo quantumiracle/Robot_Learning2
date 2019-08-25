@@ -24,6 +24,7 @@ class ReacherEnv(object):
         '''
         self.reward_offset=10.0  # reward of achieving the grasping object
         self.reward_range = self.reward_offset # reward range for register gym env when using vectorized env wrapper
+        self.fall_down_offset = 0.1 # for judging the target object fall off the table
         self.metadata=[]  # gym env format
         self.control_mode = control_mode  # the control mode of robotic arm: 'end_position' or 'joint_velocity'
         self.pr = PyRep()
@@ -151,6 +152,9 @@ class ReacherEnv(object):
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
+        while np.sum(self.gripper.get_open_amount())<1.5:
+            self.gripper.actuate(1, velocity=0.5)  # open the gripper
+            self.pr.step()
         return self._get_state()
 
     def step(self, action):
@@ -181,7 +185,10 @@ class ReacherEnv(object):
 
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2  # distance between the gripper and the target object
         done=False
-        
+
+        if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
+            done = True
+
         ''' for visual-based control only, large time consumption! '''
         # current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
         # plt.imshow(current_vision)

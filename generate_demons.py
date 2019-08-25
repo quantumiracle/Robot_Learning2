@@ -33,9 +33,9 @@ if __name__ == '__main__':
 
         env=ReacherEnv(headless=False, control_mode='end_position')
 
-        max_epi=10
+        max_epi=100
         max_steps=30
-        offset=np.array([0,0,0.1])  # move on top of the object
+        offset=np.array([0,0,0.13])  # move on top of the object
         action_range = 0.1
         demons_buffer=[]
         for ep in range(max_epi):
@@ -44,7 +44,13 @@ if __name__ == '__main__':
                 target_pos=env.target.get_position()
                 gripper_pos=env.gripper.get_position()
                 pos_diff=np.array(target_pos)+offset-np.array(gripper_pos)
-                action = np.concatenate((np.clip(pos_diff ,-action_range, action_range), np.random.uniform(-0.1,0.1,1)))  # clip the action range to be valid
+                # print('gripper pos z: ', gripper_pos[2])
+                # print('gripper rotat: ', env.agent_ee_tip.get_orientation())
+                # print('target rotat: ', env.target.get_orientation())
+                ori=env.target.get_orientation()[2]-env.agent_ee_tip.get_orientation()[2]
+                action = np.concatenate((np.clip(pos_diff ,-action_range, action_range), [ori]))  # clip the action range to be valid
+                if gripper_pos[2]<0.85:  # prevent the collision of gripper and table
+                    action[2]+=0.05 # move up the gripper if it's too low
                 print('Eps: ', ep, 'Step: ', step)
                 # action=np.random.uniform(-0.1,0.1,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
                 try:
