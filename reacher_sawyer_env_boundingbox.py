@@ -105,7 +105,7 @@ class ReacherEnv(object):
         '''
         pos=self.gripper.get_position()
         bounding_offset=0.2
-        robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
+        robot_moving_unit=0.05  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
         # check if state+action will be within of the bounding box, if so, move normally; else no action.
         #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
         if pos[0]+action[0]>POS_MIN[0]-bounding_offset and pos[0]+action[0]<POS_MAX[0]+bounding_offset  \
@@ -182,9 +182,10 @@ class ReacherEnv(object):
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2  # distance between the gripper and the target object
         done=False
         
-        current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
-        plt.imshow(current_vision)
-        plt.savefig('./img/vision.png')
+        ''' for visual-based control only, large time consumption! '''
+        # current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
+        # plt.imshow(current_vision)
+        # plt.savefig('./img/vision.png')
         
         reward=0
         # close the gripper if close enough to the object and the object is detected with the proximity sensor

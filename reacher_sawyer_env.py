@@ -100,8 +100,10 @@ class ReacherEnv(object):
         ''' 
         Move the tip according to the action with inverse kinematics for 'end_position' control;
         with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
+        Mmethod: small step movement, decompose one big step into several homogenetic small steps, as ik cannot work well for one big step.
         '''
-        robot_moving_unit=0.01  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
+        t0=time.time()
+        robot_moving_unit=0.1  # the amount of single step move of robot, not accurate; the smaller the value, the smoother the movement.
         moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step; the larger it is, the more accurate for each movement.
         small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
         pos=self.agent_ee_tip.get_position()
@@ -112,21 +114,27 @@ class ReacherEnv(object):
         '''
         ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
         assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
-
+        print('t before move: ', time.time()-t0)
+        t0=time.time()
         # print('before: ',self.agent_ee_tip.get_position())
         for _ in range(moving_loop_itr):
             for idx in range(len(pos)):
                 pos[idx] += small_step[idx]
             self.tip_target.set_position(pos)
             self.pr.step()
+
             ''' deprecated! no need to use small steps for the rotation with reset_dynamics=True'''
             # ori_z+=small_step[3]  # change the orientation along z-axis with a small step
             # self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
             # self.pr.step()
+        print('t after move: ', time.time()-t0)
+        t0=time.time()
         ''' one big step for z-rotation is enough, with reset_dynamics=True, set the rotation instantaneously '''
         ori_z+=action[3]
         self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
         self.pr.step()
+        print('t for rotation: ', time.time()-t0)
+        
         # print(self.tip_target.get_orientation())
         # print(self.agent_ee_tip.get_orientation())
         # print('target: ', pos)
@@ -174,9 +182,10 @@ class ReacherEnv(object):
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2  # distance between the gripper and the target object
         done=False
         
-        current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
-        plt.imshow(current_vision)
-        plt.savefig('./img/vision.png')
+        ''' for visual-based control only, large time consumption! '''
+        # current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
+        # plt.imshow(current_vision)
+        # plt.savefig('./img/vision.png')
         
         reward=0
         # close the gripper if close enough to the object and the object is detected with the proximity sensor
@@ -214,13 +223,27 @@ class ReacherEnv(object):
 if __name__ == '__main__':
     env=ReacherEnv(headless=False, control_mode='end_position')
     env.reset()
+    import time
     for step in range(1000):
         print(step)
+        start_t=time.time()
         action=np.random.uniform(-0.1,0.1,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
         try:
+            print('step time1: ', time.time()-start_t)
             env.step(action)
+            print('step time2: ', time.time()-start_t)
         except KeyboardInterrupt:
             print('Shut Down!')
             env.shutdown()
-
+        end_t=time.time()
+        print('step time: ', end_t-start_t)
     env.shutdown()
+
+''' time property '''
+# step time1:  9.775161743164062e-06
+# t before move:  3.123283386230469e-05
+# t after move:  0.034180641174316406
+# t for rotation:  0.017305374145507812
+# step time2:  0.05172562599182129
+# step time:  0.05173373222351074
+

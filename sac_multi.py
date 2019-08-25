@@ -450,7 +450,7 @@ if __name__ == '__main__':
     update_itr = 1
     AUTO_ENTROPY=True
     DETERMINISTIC=False
-    USE_DEMONS = True  # using demonstrations
+    USE_DEMONS = False  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_multi'
     num_workers=3  # or: mp.cpu_count() 
