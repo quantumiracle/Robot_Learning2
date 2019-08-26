@@ -557,7 +557,9 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
     '''
 
     print(sac_trainer, replay_buffer)  # sac_tainer are not the same, but all networks and optimizers in it are the same; replay  buffer is the same one.
-    env = ReacherEnv(headless=True)  # no need to configure different port_number for calling different Vrep env at the same time
+    env = ReacherEnv(headless=False)  # no need to configure different port_number for calling different Vrep env at the same time
+    # env = gym.make('MountainCarContinuous-v0')  # toy test
+    # env =gym.make("Pendulum-v0")
 
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
@@ -578,6 +580,7 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
     
             try:
                 next_state, reward, done, _ = env.step(action) 
+
             except KeyboardInterrupt:
                 print('Finished')
                 sac_trainer.save_model(model_path)
@@ -657,7 +660,10 @@ if __name__ == '__main__':
 
     # choose env
     env = ReacherEnv(headless=True, control_mode='end_position')
+    # env = gym.make('MountainCarContinuous-v0')     # toy test
+    # env =gym.make("Pendulum-v0")
 
+    # print(env.action_space, env.observation_space)
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
     action_range=0.1
@@ -676,7 +682,6 @@ if __name__ == '__main__':
     model_path = './model/sac_multi'
     num_workers=3  # or: mp.cpu_count() 
     
-
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
     if args.train:
@@ -728,14 +733,17 @@ if __name__ == '__main__':
 
     if args.test:
         env = ReacherEnv(headless=False, control_mode='end_position') # for visualizing in test
+        # env = gym.make('MountainCarContinuous-v0')
+
         # single process for testing
         sac_trainer.load_model(model_path)
-        for eps in range(10):
-            state =  env.reset()
+        for eps in range(50):
+            state = env.reset()
             episode_reward = 0
 
             for step in range(max_steps):
                 print(step)
+
                 action = sac_trainer.policy_net.get_action(state, deterministic = DETERMINISTIC)
                 next_state, reward, done, _ = env.step(action)  
 

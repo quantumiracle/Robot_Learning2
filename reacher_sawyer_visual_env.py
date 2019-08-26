@@ -30,7 +30,7 @@ class ReacherEnv(object):
         '''
         :visual_control: bool, controlled by visual state or not (vector state).
         '''
-        self.reward_range=10.0
+        self.reward_offset=10.0
         self.reward_range = self.reward_offset # reward range for register gym env when using vectorized env wrapper
         self.fall_down_offset = 0.1 # for judging the target object fall off the table
         self.metadata=[]  # gym env format
@@ -77,7 +77,8 @@ class ReacherEnv(object):
         self.pr.step()
 
         self.initial_joint_positions = self.agent.get_joint_positions()
-        self.initial_gripper_positions = self.gripper.get_position()
+        self.initial_tip_positions = self.agent_ee_tip.get_position()
+        self.initial_target_positions = self.target.get_position()
 
     def _get_state(self):
         # Return state containing arm joint angles/velocities & target position
@@ -113,51 +114,103 @@ class ReacherEnv(object):
         else:
             return False
 
+    # def _move(self, action):
+    #     ''' 
+    #     Move the tip according to the action with inverse kinematics for 'end_position' control;
+    #     with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
+    #     '''
+    #     robot_moving_unit=0.01  # the amount of single step move of robot, not accurate
+    #     moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step. 
+    #     # print(moving_loop_itr)
+    #     small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
+    #     pos=self.agent_ee_tip.get_position()
+
+    #     ''' 
+    #     there is a mismatch between the object set_orientation() and get_orientation():
+    #     the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
+    #     '''
+    #     ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
+    #     assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
+
+    #     for _ in range(moving_loop_itr):
+    #         for idx in range(len(pos)):
+    #             pos[idx] += small_step[idx]
+    #         self.tip_target.set_position(pos)
+    #         self.pr.step()
+    #         ''' deprecated! no need to use small steps for the rotation with reset_dynamics=True'''
+    #         # ori_z+=small_step[3]  # change the orientation along z-axis with a small step
+    #         # self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
+    #         # self.pr.step()
+    #     ''' one big step for z-rotation is enough, with reset_dynamics=True, set the rotation instantaneously '''
+    #     ori_z+=action[3]
+    #     self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
+    #     self.pr.step()
+
     def _move(self, action):
         ''' 
         Move the tip according to the action with inverse kinematics for 'end_position' control;
         with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
+        Mode 2: a close-loop control, using ik.
         '''
-        robot_moving_unit=0.01  # the amount of single step move of robot, not accurate
-        moving_loop_itr=int(np.sum(np.abs(action[:3]))/robot_moving_unit)+1  # adaptive number of moving steps, with minimal of 1 step. 
-        # print(moving_loop_itr)
-        small_step = list(1./moving_loop_itr*np.array(action))  # break the action into small steps, as the robot cannot move to the target position within one frame
-        pos=self.agent_ee_tip.get_position()
+        pos=self.gripper.get_position()
+        bounding_offset=0.1
+        step_factor=0.2  # small step factor mulitplied on the gradient step calculated by inverse kinematics
+        max_itr=20  # maximum moving iterations
+        max_error=0.1  # upper bound of distance error for movement at each call
+        rotation_norm =5. # factor for normalization of rotation values
+        # check if state+action will be within of the bounding box, if so, move normally; else no action.
+        #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
+        if pos[0]+action[0]>POS_MIN[0]-bounding_offset and pos[0]+action[0]<POS_MAX[0]+bounding_offset  \
+            and pos[1]+action[1] > POS_MIN[1]-bounding_offset and pos[1]+action[1] < POS_MAX[1]+bounding_offset  \
+            and pos[2]+action[2] > POS_MIN[2]-bounding_offset:
 
-        ''' 
-        there is a mismatch between the object set_orientation() and get_orientation():
-        the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
-        '''
-        ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
-        assert len(small_step) == len(pos)+1  # 3 values for position, 1 value for rotation
+            ''' 
+            there is a mismatch between the object set_orientation() and get_orientation():
+            the (x,y,z) in set_orientation() will be (y,x,-z) in get_orientation().
+            '''
+            ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
+            target_pos = np.array(self.agent_ee_tip.get_position())+np.array(action[:3])
+            diff=1
+            itr=0
+            # print('before: ', ori_z)
+            while np.sum(np.abs(diff))>max_error and itr<max_itr:
+                itr+=1
+                # set pos in small step
+                cur_pos = self.agent_ee_tip.get_position()
+                diff=target_pos-cur_pos
+                pos = cur_pos+step_factor*diff
+                self.tip_target.set_position(pos.tolist())
+                self.pr.step()
 
-        for _ in range(moving_loop_itr):
-            for idx in range(len(pos)):
-                pos[idx] += small_step[idx]
-            self.tip_target.set_position(pos)
+            ''' one big step for z-rotation is enough '''
+            ori_z+=rotation_norm*action[3]
+            self.tip_target.set_orientation([0, np.pi, ori_z])  # make gripper face downwards
             self.pr.step()
-            ''' deprecated! no need to use small steps for the rotation with reset_dynamics=True'''
-            # ori_z+=small_step[3]  # change the orientation along z-axis with a small step
-            # self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
-            # self.pr.step()
-        ''' one big step for z-rotation is enough, with reset_dynamics=True, set the rotation instantaneously '''
-        ori_z+=action[3]
-        self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # make gripper face downwards
-        self.pr.step()
 
+        else:
+            # print("Potential Movement Out of the Bounding Box!")
+            pass # no action if potentially out of the bounding box
 
     def reset(self):
         # Get a random position within a cuboid and set the target position
+        max_itr=10
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.target.set_orientation([0,0,0])
         # changing the color or texture for domain randomization
         self.target.set_color(np.random.uniform(low=0, high=1, size=3).tolist()) # set [r,g,b] 3 channel values of object color
+        # reset joint positions
         self.agent.set_joint_positions(self.initial_joint_positions)
+        itr=0
+        while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr: 
+            itr+=1
+            self.agent.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
+            self.pr.step()
+            self.agent.set_joint_positions(self.initial_joint_positions)
         # self.table.set_collidable(True)
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
-        while np.sum(self.gripper.get_open_amount())<1.5:
+        if np.sum(self.gripper.get_open_amount())<1.5:
             self.gripper.actuate(1, velocity=0.5)  # open the gripper
             self.pr.step()
         if self.visual_control:
@@ -190,9 +243,6 @@ class ReacherEnv(object):
         # Reward is negative distance to target
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2
         done=False
-
-        if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
-            done = True
 
         # print(self.proximity_sensor.is_detected(self.target))
         current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
@@ -227,6 +277,11 @@ class ReacherEnv(object):
 
 
         reward -= np.sqrt(distance)
+
+        if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
+            done = True
+            reward = -self.reward_offset
+
         if self.visual_control:
             return self._get_visual_state(), reward, done, {}
         else:
