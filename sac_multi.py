@@ -453,7 +453,7 @@ if __name__ == '__main__':
     USE_DEMONS = False  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_multi'
-    num_workers=3  # or: mp.cpu_count() 
+    num_workers=1  # or: mp.cpu_count() 
     
 
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
@@ -492,6 +492,8 @@ if __name__ == '__main__':
 
             if len(rewards)%20==0 and len(rewards)>0:
                 plot(rewards)
+                np.save('reward_log', rewards)
+
 
         [p.join() for p in processes]  # finished at the same time
 
