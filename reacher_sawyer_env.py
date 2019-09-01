@@ -56,12 +56,19 @@ class ReacherEnv(object):
         self.tip_quat=self.agent_ee_tip.get_quaternion()  # tip rotation as quaternion, if not control the rotation
         
         # set a proper initial gesture/tip position
-        agent_position=self.agent.get_position()
-        initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
-        initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
-        self.tip_target.set_position(initial_pos)
-        self.tip_target.set_orientation([0,3.1415,1.5708], reset_dynamics=True)  # make gripper face downwards
-        self.pr.step()
+        if control_mode == 'end_position': 
+            # agent_position=self.agent.get_position()
+            # initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
+            # initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
+            initial_pos = [0.3, 0.1, 0.9]
+            self.tip_target.set_position(initial_pos)
+            # one big step for rotation setting is enough, with reset_dynamics=True, set the rotation instantaneously
+            self.tip_target.set_orientation([0,3.1415,1.5707], reset_dynamics=True)  # make gripper face downwards
+            self.pr.step()  
+        elif control_mode == 'joint_velocity':
+            self.initial_joint_positions = [0.001815199851989746, -1.4224984645843506, 0.704303503036499, 2.54307222366333, 2.972468852996826, -0.4989511966705322, 4.105560302734375]
+            self.agent.set_joint_positions(self.initial_joint_positions)
+
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.initial_tip_positions = self.agent_ee_tip.get_position()
         self.initial_target_positions = self.target.get_position()
@@ -193,13 +200,20 @@ class ReacherEnv(object):
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.target.set_orientation([0,0,0])
-        self.agent.set_joint_positions(self.initial_joint_positions)
-        itr=0
-        while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr: 
-            itr+=1
-            self.agent.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
+        # set end position to be initialized
+        if self.control_mode == 'end_position':  # JointMode.IK
+            self.agent.set_control_loop_enabled(True)
+            self.tip_target.set_position(self.initial_tip_positions)  # cannot set joint positions directly due to in ik mode nor force/torch mode
             self.pr.step()
-            self.agent.set_joint_positions(self.initial_joint_positions)
+            # prevent stuck case
+            itr=0
+            while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr:
+                itr+=1
+                self.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
+                self.pr.step()
+        elif self.control_mode == 'joint_velocity': # JointMode.FORCE
+            self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
+        
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
@@ -221,11 +235,10 @@ class ReacherEnv(object):
             self._move(action)
 
         elif self.control_mode == 'joint_velocity':
+            if action is None or action.shape[0]!=7:
+                print('No actions or wrong action dimensions!')
+                action = list(np.random.uniform(-0.1, 0.1, 7))  # random
             self.agent.set_joint_target_velocities(action)  # Execute action on arm
-            self.pr.step()
-            ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
-            ori_z+=action[7]  # change the orientation along z-axis
-            self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # change orientation
             self.pr.step()
 
         else:

@@ -10,15 +10,16 @@ from pyrep.objects.proximity_sensor import ProximitySensor
 from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.shape import Shape
 from pyrep.objects.dummy import Dummy
+from pyrep.const import JointType, JointMode
 import numpy as np
 import matplotlib.pyplot as plt
 
-POS_MIN, POS_MAX = [0.1, -0.3, 0.8], [0.45, 0.3, 0.8]  # valid position range of target object 
+POS_MIN, POS_MAX = [0.1, -0.3, 0.8], [0.45, 0.3, 0.9]  # valid position range of target object 
 
 
 class ReacherEnv(object):
 
-    def __init__(self, headless, control_mode='end_position'):
+    def __init__(self, headless, control_mode='joint_velocity'):
         '''
         :headless: bool, if True, no visualization, else with visualization.
         :control mode: str, 'end_position' or 'joint_velocity'.
@@ -31,7 +32,7 @@ class ReacherEnv(object):
         self.pr = PyRep()
         if control_mode == 'end_position':  # need to use different scene, the one with all joints in inverse kinematics mode
             SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new_ik.ttt')
-        elif control_mode == 'joint_velocity': # the scene with all joints in force/torche mode for forward kinematics
+        elif control_mode == 'joint_velocity': # the scene with all joints in force/torch mode for forward kinematics
             SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new.ttt')
         self.pr.launch(SCENE_FILE, headless=headless)  # lunch the scene, headless means no visualization
         self.pr.start()       # start the scene
@@ -41,11 +42,11 @@ class ReacherEnv(object):
         self.proximity_sensor = ProximitySensor('BaxterGripper_attachProxSensor')  # need the name of the sensor here
         self.vision_sensor = VisionSensor('Vision_sensor')  # need the name of the sensor here
         if control_mode == 'end_position':  # control the robot arm by the position of its end using inverse kinematics
-            self.agent.set_control_loop_enabled(True)  # if false, won't work
+            self.agent.set_control_loop_enabled(True)  # if false, ik won't work
             self.action_space = np.zeros(4)  # 3 DOF end position control + 1 rotation of gripper
         elif control_mode == 'joint_velocity':  # control the robot arm by directly setting velocity values on each joint, forward kinematics
             self.agent.set_control_loop_enabled(False)
-            self.action_space = np.zeros(8)  # 7 DOF velocity control + 1 rotation of gripper
+            self.action_space = np.zeros(7)  # 7 DOF velocity control, no need for extra control of end rotation, the 7th joint controls it.
         else:
             raise NotImplementedError
         self.observation_space = np.zeros(17)  # position and velocity of 7 joints + position of the target
@@ -57,13 +58,19 @@ class ReacherEnv(object):
         self.tip_quat=self.agent_ee_tip.get_quaternion()  # tip rotation as quaternion, if not control the rotation
         
         # set a proper initial gesture/tip position
-        agent_position=self.agent.get_position()
-        initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
-        initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
-        self.tip_target.set_position(initial_pos)
-        # one big step for rotation setting is enough, with reset_dynamics=True, set the rotation instantaneously
-        self.tip_target.set_orientation([0,3.1415,1.5708], reset_dynamics=True)  # make gripper face downwards
-        self.pr.step()    
+        if control_mode == 'end_position': 
+            # agent_position=self.agent.get_position()
+            # initial_pos_offset = [0.4, 0.3, 0.2]  # initial relative position of gripper to the whole arm
+            # initial_pos = [(a + o) for (a, o) in zip(agent_position, initial_pos_offset)]
+            initial_pos = [0.3, 0.1, 0.9]
+            self.tip_target.set_position(initial_pos)
+            # one big step for rotation setting is enough, with reset_dynamics=True, set the rotation instantaneously
+            self.tip_target.set_orientation([0,3.1415,1.5707], reset_dynamics=True)  # make gripper face downwards
+            self.pr.step()  
+        elif control_mode == 'joint_velocity':
+            self.initial_joint_positions = [0.001815199851989746, -1.4224984645843506, 0.704303503036499, 2.54307222366333, 2.972468852996826, -0.4989511966705322, 4.105560302734375]
+            self.agent.set_joint_positions(self.initial_joint_positions)
+
         self.initial_joint_positions = self.agent.get_joint_positions()
         self.initial_tip_positions = self.agent_ee_tip.get_position()
         self.initial_target_positions = self.target.get_position()
@@ -154,16 +161,16 @@ class ReacherEnv(object):
         Mode 2: a close-loop control, using ik.
         '''
         pos=self.gripper.get_position()
-        bounding_offset=0.1
+        bounding_offset=0.15
         step_factor=0.2  # small step factor mulitplied on the gradient step calculated by inverse kinematics
         max_itr=20  # maximum moving iterations
-        max_error=0.1  # upper bound of distance error for movement at each call
+        max_error=0.05  # upper bound of distance error for movement at each call
         rotation_norm =5. # factor for normalization of rotation values
         # check if state+action will be within of the bounding box, if so, move normally; else no action.
         #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
         if pos[0]+action[0]>POS_MIN[0]-bounding_offset and pos[0]+action[0]<POS_MAX[0]+bounding_offset  \
-            and pos[1]+action[1] > POS_MIN[1]-bounding_offset and pos[1]+action[1] < POS_MAX[1]+bounding_offset  \
-            and pos[2]+action[2] > POS_MIN[2]-bounding_offset:
+            and pos[1]+action[1] > POS_MIN[1]-bounding_offset and pos[1]+action[1] < POS_MAX[1]+2*bounding_offset  \
+            and pos[2]+action[2] > POS_MIN[2]-2*bounding_offset:  # larger offset in z axis
 
             ''' 
             there is a mismatch between the object set_orientation() and get_orientation():
@@ -186,36 +193,46 @@ class ReacherEnv(object):
             ''' one big step for z-rotation is enough '''
             # print('before: ', ori_z)
             ori_z+=rotation_norm*action[3]
-            self.tip_target.set_orientation([0, np.pi, ori_z])  # make gripper face downwards
+            self.tip_target.set_orientation([0, 3.1415, ori_z])  # make gripper face downwards
             self.pr.step()
             # print('after: ', ori_z, -self.agent_ee_tip.get_orientation()[2])
 
         else:
-            # print("Potential Movement Out of the Bounding Box!")
+            print("Potential Movement Out of the Bounding Box!")
             pass # no action if potentially out of the bounding box
 
-    def reset(self):
+    def reset(self, random_target=True):
         '''
          Get a random position within a cuboid and set the target position.
          '''
         max_itr=10
-        pos = list(np.random.uniform(POS_MIN, POS_MAX))
-        # self.target.set_position(pos)
-        self.target.set_position(self.initial_target_positions) # fixed position
+        if random_target:
+            pos = list(np.random.uniform(POS_MIN, POS_MAX))
+            self.target.set_position(pos)  # random position
+        else:
+            self.target.set_position(self.initial_target_positions) # fixed position
         self.target.set_orientation([0,0,0])
-        self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
-        itr=0
-        while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr: 
-            itr+=1
-            self.agent.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
+        # set end position to be initialized
+        if self.control_mode == 'end_position':  # JointMode.IK
+            self.agent.set_control_loop_enabled(True)
+            self.tip_target.set_position(self.initial_tip_positions)  # cannot set joint positions directly due to in ik mode nor force/torch mode
             self.pr.step()
-            self.agent.set_joint_positions(self.initial_joint_positions)
+            # prevent stuck case
+            itr=0
+            while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr:
+                itr+=1
+                self.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
+                self.pr.step()
+        elif self.control_mode == 'joint_velocity': # JointMode.FORCE
+            self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
+        
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
         if np.sum(self.gripper.get_open_amount())<1.5:
             self.gripper.actuate(1, velocity=0.5)  # open the gripper
             self.pr.step()
+
         return self._get_state()
 
     def step(self, action):
@@ -226,18 +243,18 @@ class ReacherEnv(object):
         '''
         if self.control_mode == 'end_position':
             if action is None or action.shape[0]!=4:
+                print('No actions or wrong action dimensions!')
                 action = list(np.random.uniform(-0.1, 0.1, 4))  # random
             # print(action, self.agent_ee_tip.get_position())
             self._move(action)
 
         elif self.control_mode == 'joint_velocity':
-            self.agent.set_joint_target_velocities(action[:7])  # Execute action on arm
+            if action is None or action.shape[0]!=7:
+                print('No actions or wrong action dimensions!')
+                action = list(np.random.uniform(-0.1, 0.1, 7))  # random
+            self.agent.set_joint_target_velocities(action)  # Execute action on arm
             self.pr.step()
-            ori_z=-self.agent_ee_tip.get_orientation()[2] # the minus is because the mismatch between the set and get
-            ori_z+=action[7]  # change the orientation along z-axis
-            self.tip_target.set_orientation([0,3.1415,ori_z], reset_dynamics=True)  # change orientation
-            self.pr.step()
-
+      
         else:
             raise NotImplementedError
 
@@ -281,10 +298,8 @@ class ReacherEnv(object):
         if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
             done = True
             reward = -self.reward_offset
-
         # can also set reward for orientation, same orientation for target and gripper, they are actually vertical, so can grasp
         # reward += np.sqrt(np.array(self.agent_ee_tip.get_orientation())-np.array(self.target.get_orientation()))
-        
         return self._get_state(), reward, done, {}
 
     def shutdown(self):
@@ -302,7 +317,7 @@ if __name__ == '__main__':
             if CONTROL_MODE=='end_position':
                 action=np.random.uniform(-0.2,0.2,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
             else: # 'joint_velocity'
-                action=np.random.uniform(-1.,1.,8)
+                action=np.random.uniform(-2.,2.,7)
             try:
                 env.step(action)
             except KeyboardInterrupt:
