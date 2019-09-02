@@ -31,9 +31,9 @@ class ReacherEnv(object):
         self.control_mode = control_mode  # the control mode of robotic arm: 'end_position' or 'joint_velocity'
         self.pr = PyRep()
         if control_mode == 'end_position':  # need to use different scene, the one with all joints in inverse kinematics mode
-            SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new_ik.ttt')
+            SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new_ik.ttt')  # scene with joints controlled by ik (inverse kinematics)
         elif control_mode == 'joint_velocity': # the scene with all joints in force/torch mode for forward kinematics
-            SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new.ttt')
+            SCENE_FILE = join(dirname(abspath(__file__)), './scenes/sawyer_reacher_rl_new.ttt')  # scene with joints controlled by forward kinematics
         self.pr.launch(SCENE_FILE, headless=headless)  # lunch the scene, headless means no visualization
         self.pr.start()       # start the scene
         self.agent = Sawyer()  # get the robot arm in the scene
@@ -154,20 +154,23 @@ class ReacherEnv(object):
 
 
 
-    def _move(self, action):
+    def _move(self, action, bounding_offset=0.15, step_factor=0.2, max_itr=20, max_error=0.05, rotation_norm =5.):
         ''' 
         Move the tip according to the action with inverse kinematics for 'end_position' control;
         with control of tip target in inverse kinematics mode instead of using .solve_ik() in forward kinematics mode.
         Mode 2: a close-loop control, using ik.
+
+        parameters:
+        :bounding_offset: offset of bounding box and valid target position range, bounding box is larger
+        :step_factor: small step factor mulitplied on the gradient step calculated by inverse kinematics
+        :max_itr=20: maximum moving iterations
+        :max_error: upper bound of distance error for movement at each call
+        :rotation_norm: factor for normalization of rotation values
         '''
-        pos=self.gripper.get_position()
-        bounding_offset=0.15
-        step_factor=0.2  # small step factor mulitplied on the gradient step calculated by inverse kinematics
-        max_itr=20  # maximum moving iterations
-        max_error=0.05  # upper bound of distance error for movement at each call
-        rotation_norm =5. # factor for normalization of rotation values
-        # check if state+action will be within of the bounding box, if so, move normally; else no action.
-        #  x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
+        pos=self.gripper.get_position()  
+
+        # check if state+action will be within of the bounding box, if so, move normally; else action is not conducted.
+        #  i.e. x_min < x < x_max  and  y_min < y < y_max  and  z > z_min
         if pos[0]+action[0]>POS_MIN[0]-bounding_offset and pos[0]+action[0]<POS_MAX[0]+bounding_offset  \
             and pos[1]+action[1] > POS_MIN[1]-bounding_offset and pos[1]+action[1] < POS_MAX[1]+2*bounding_offset  \
             and pos[2]+action[2] > POS_MIN[2]-2*bounding_offset:  # larger offset in z axis
@@ -180,45 +183,44 @@ class ReacherEnv(object):
             target_pos = np.array(self.agent_ee_tip.get_position())+np.array(action[:3])
             diff=1
             itr=0
-            # print('before: ', ori_z)
             while np.sum(np.abs(diff))>max_error and itr<max_itr:
                 itr+=1
                 # set pos in small step
                 cur_pos = self.agent_ee_tip.get_position()
-                diff=target_pos-cur_pos
-                pos = cur_pos+step_factor*diff
+                diff=target_pos-cur_pos  # difference of current and target position, close-loop control
+                pos = cur_pos+step_factor*diff   # step small step according to current difference, to prevent that ik cannot be solved
                 self.tip_target.set_position(pos.tolist())
-                self.pr.step()
+                self.pr.step()  # every time set target tip, need to call simulation step to achieve it
 
-            ''' one big step for z-rotation is enough '''
-            # print('before: ', ori_z)
-            ori_z+=rotation_norm*action[3]
-            self.tip_target.set_orientation([0, 3.1415, ori_z])  # make gripper face downwards
+            ''' one big step for z-rotation is enough, but still small error exists '''
+            ori_z+=rotation_norm*action[3]  # normalize the rotation values, as usually same action range is used in policy for both rotation and position
+            self.tip_target.set_orientation([0, 3.1415, ori_z])  # make gripper face downwards and rotate ori_z
             self.pr.step()
             # print('after: ', ori_z, -self.agent_ee_tip.get_orientation()[2])
 
         else:
             print("Potential Movement Out of the Bounding Box!")
-            pass # no action if potentially out of the bounding box
+            pass # no action if potentially moving out of the bounding box
 
     def reset(self, random_target=False):
         '''
-         Get a random position within a cuboid and set the target position.
-         '''
-        max_itr=10
-        if random_target:
-            pos = list(np.random.uniform(POS_MIN, POS_MAX))
+        Get a random position within a cuboid and set the target position.
+        '''
+        if random_target:  # randomly set the target position
+            pos = list(np.random.uniform(POS_MIN, POS_MAX))  # sample from uniform in valid range
             self.target.set_position(pos)  # random position
         else:
             self.target.set_position(self.initial_target_positions) # fixed position
         self.target.set_orientation([0,0,0])
+
         # set end position to be initialized
         if self.control_mode == 'end_position':  # JointMode.IK
             self.agent.set_control_loop_enabled(True)
             self.tip_target.set_position(self.initial_tip_positions)  # cannot set joint positions directly due to in ik mode nor force/torch mode
             self.pr.step()
-            # prevent stuck case
+            # prevent stuck cases, as using ik for moving, stucking can make ik cannot be solved therefore not reset correctly
             itr=0
+            max_itr=10
             while np.sum(np.abs(np.array(self.agent_ee_tip.get_position()-np.array(self.initial_tip_positions))))>0.1 and itr<max_itr:
                 itr+=1
                 self.step(np.random.uniform(-0.2,0.2,4))  # take random actions for preventing the stuck cases
@@ -229,11 +231,13 @@ class ReacherEnv(object):
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
         self.target.set_collidable(True)
+
+        # open the gripper if it's not fully open
         if np.sum(self.gripper.get_open_amount())<1.5:
-            self.gripper.actuate(1, velocity=0.5)  # open the gripper
+            self.gripper.actuate(1, velocity=0.5)  
             self.pr.step()
 
-        return self._get_state()
+        return self._get_state()  # return current state of the environment
 
     def step(self, action):
         '''
@@ -293,13 +297,16 @@ class ReacherEnv(object):
 
         else:
             pass
+
         reward -= np.sqrt(distance) # Reward is negative distance to target
         
         if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
             done = True
             reward = -self.reward_offset
+
         # can also set reward for orientation, same orientation for target and gripper, they are actually vertical, so can grasp
         # reward += np.sqrt(np.array(self.agent_ee_tip.get_orientation())-np.array(self.target.get_orientation()))
+
         return self._get_state(), reward, done, {}
 
     def shutdown(self):
@@ -313,7 +320,7 @@ if __name__ == '__main__':
     for eps in range(30):
         env.reset()
         for step in range(30):
-            print(step)
+            # print(step)
             if CONTROL_MODE=='end_position':
                 action=np.random.uniform(-0.2,0.2,4)  #  4 dim control for 'end_position': 3 positions and 1 rotation (z-axis)
             else: # 'joint_velocity'

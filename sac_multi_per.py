@@ -659,14 +659,14 @@ if __name__ == '__main__':
 
 
     # choose env
-    env = ReacherEnv(headless=True, control_mode='end_position')
+    env = ReacherEnv(headless=True, control_mode='joint_velocity')
     # env = gym.make('MountainCarContinuous-v0')     # toy test
     # env =gym.make("Pendulum-v0")
 
     # print(env.action_space, env.observation_space)
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
-    action_range=0.1
+    action_range=1.
     env.shutdown()
 
     # hyper-parameters for RL training, no need for sharing across processes
@@ -680,11 +680,12 @@ if __name__ == '__main__':
     USE_DEMONS = False  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_multi'
-    num_workers=1  # or: mp.cpu_count() 
+    num_workers=2  # or: mp.cpu_count() 
     
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
     if args.train:
+        sac_trainer.load_model(model_path)
 
         # share the global parameters in multiprocessing
         sac_trainer.soft_q_net1.share_memory() 
