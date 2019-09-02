@@ -459,6 +459,7 @@ if __name__ == '__main__':
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
     if args.train:
+        sac_trainer.load_model(model_path)
 
         # share the global parameters in multiprocessing
         sac_trainer.soft_q_net1.share_memory() 
@@ -500,10 +501,10 @@ if __name__ == '__main__':
         sac_trainer.save_model(model_path)
 
     if args.test:
-        env = ReacherEnv(headless=False, control_mode='end_position') # for visualizing in test
+        env = ReacherEnv(headless=False, control_mode='joint_velocity') # for visualizing in test
         # single process for testing
         sac_trainer.load_model(model_path)
-        for eps in range(10):
+        for eps in range(100):
             state =  env.reset()
             episode_reward = 0
 

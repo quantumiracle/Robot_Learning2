@@ -201,7 +201,7 @@ class ReacherEnv(object):
             print("Potential Movement Out of the Bounding Box!")
             pass # no action if potentially out of the bounding box
 
-    def reset(self, random_target=True):
+    def reset(self, random_target=False):
         '''
          Get a random position within a cuboid and set the target position.
          '''
