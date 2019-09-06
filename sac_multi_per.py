@@ -564,11 +564,13 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
 
-
+    frame_idx=0
+    # rewards=[]
+    
     # training loop
     for eps in range(max_episodes):
-        frame_idx=0
-        rewards=[]
+        
+       
         episode_reward = 0
         state =  env.reset()
         
@@ -604,8 +606,8 @@ def worker(id, sac_trainer, rewards_queue, replay_buffer, max_episodes, max_step
                 break
         replay_buffer.beta_step(0.6 / max_episodes)
         print('Episode: ', eps, '| Episode Reward: ', episode_reward)
-        if len(rewards) == 0: rewards.append(episode_reward)
-        else: rewards.append(rewards[-1]*0.9+episode_reward*0.1)
+        # if len(rewards) == 0: rewards.append(episode_reward)
+        # else: rewards.append(rewards[-1]*0.9+episode_reward*0.1)
         rewards_queue.put(episode_reward)
 
     sac_trainer.save_model(model_path)
