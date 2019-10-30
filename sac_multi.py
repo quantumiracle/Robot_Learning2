@@ -200,7 +200,7 @@ class PolicyNetwork(nn.Module):
         z      = normal.sample().to(device)
         action = self.action_range* torch.tanh(mean + std*z)
         
-        action = self.action_range*mean.detach().cpu().numpy()[0] if deterministic else action.detach().cpu().numpy()[0]
+        action = self.action_range* torch.tanh(mean).detach().cpu().numpy()[0] if deterministic else action.detach().cpu().numpy()[0]
         return action
 
 
@@ -517,3 +517,5 @@ if __name__ == '__main__':
                 state=next_state
 
             print('Episode: ', eps, '| Episode Reward: ', episode_reward)
+
+        env.shutdown()

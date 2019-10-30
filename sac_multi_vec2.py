@@ -183,7 +183,7 @@ class PolicyNetwork(nn.Module):
             z = normal.sample(std.size()).to(device)
             action = self.action_range * torch.tanh(mean + std * z)
 
-            action = ((self.action_range * mean) if deterministic else action).cpu().numpy()
+            action = ((self.action_range * torch.tanh(mean)) if deterministic else action).cpu().numpy()
             return action
 
     def sample_action(self, sample_number):
