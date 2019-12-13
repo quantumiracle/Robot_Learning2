@@ -439,7 +439,7 @@ if __name__ == '__main__':
 
     action_dim = env.action_space.shape[0]
     state_dim  = env.observation_space.shape[0]
-    action_range=1  # 0.1 for end_position control and 1 for joint_velocity control
+    action_range = 0.5  # 0.05 for end_position control and 0.5 for joint_velocity control
     env.shutdown()
 
     # hyper-parameters for RL training, no need for sharing across processes
@@ -453,13 +453,12 @@ if __name__ == '__main__':
     USE_DEMONS = False  # using demonstrations
     hidden_dim = 512
     model_path = './model/sac_multi'
-    num_workers=2  # or: mp.cpu_count() 
-    
+    num_workers=1  # or: mp.cpu_count() 
 
     sac_trainer=SAC_Trainer(replay_buffer, hidden_dim=hidden_dim, action_range=action_range )
 
     if args.train:
-        sac_trainer.load_model(model_path)
+        # sac_trainer.load_model(model_path)
 
         # share the global parameters in multiprocessing
         sac_trainer.soft_q_net1.share_memory() 
@@ -494,7 +493,6 @@ if __name__ == '__main__':
             if len(rewards)%20==0 and len(rewards)>0:
                 plot(rewards)
                 np.save('reward_log', rewards)
-
 
         [p.join() for p in processes]  # finished at the same time
 
