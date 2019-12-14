@@ -203,6 +203,7 @@ class ReacherEnv(object):
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.target.set_orientation([0,0,0])
+        self.pr.step()
         # changing the color or texture for domain randomization
         self.target.set_color(np.random.uniform(low=0, high=1, size=3).tolist()) # set [r,g,b] 3 channel values of object color
         # set end position to be initialized
@@ -218,6 +219,7 @@ class ReacherEnv(object):
                 self.pr.step()
         elif self.control_mode == 'joint_velocity': # JointMode.FORCE
             self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
+            self.pr.step()
         
         # self.table.set_collidable(True)
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision

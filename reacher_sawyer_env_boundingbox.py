@@ -24,6 +24,7 @@ class ReacherEnv(object):
         :headless: bool, if True, no visualization, else with visualization.
         :control mode: str, 'end_position' or 'joint_velocity'.
         '''
+        self.headless = headless 
         self.reward_offset=10.0  # reward of achieving the grasping object
         self.reward_range = self.reward_offset # reward range for register gym env when using vectorized env wrapper
         self.fall_down_offset = 0.1 # for judging the target object fall off the table
@@ -202,6 +203,7 @@ class ReacherEnv(object):
         else:
             self.target.set_position(self.initial_target_positions) # fixed position
         self.target.set_orientation([0,0,0])
+        self.pr.step()
 
         # set end position to be initialized
         if self.control_mode == 'end_position':  # JointMode.IK
@@ -218,6 +220,7 @@ class ReacherEnv(object):
                 self.pr.step()
         elif self.control_mode == 'joint_velocity': # JointMode.FORCE
             self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
+            self.pr.step()
         
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision
@@ -275,6 +278,7 @@ class ReacherEnv(object):
         If control_mode=='joint_velocity', action is 7 dim of joint velocity values + 1 dim rotation of gripper;
         if control_mode=='end_position', action is 3 dim of tip (end of robot arm) position values + 1 dim rotation of gripper;
         '''
+        done=False
         if self.control_mode == 'end_position':
             if action is None or action.shape[0]!=4:
                 print('No actions or wrong action dimensions!')
@@ -287,16 +291,19 @@ class ReacherEnv(object):
                 print('No actions or wrong action dimensions!')
                 action = list(np.random.uniform(-0.1, 0.1, 7))  # random
             self.agent.set_joint_target_velocities(action)  # Execute action on arm
-            self.pr.step()
+            self.pr.step()  # if no pr.step() the action won't be conducted
       
         else:
             raise NotImplementedError
 
         ax, ay, az = self.gripper.get_position()
+        if math.isnan(ax):  # capture the case when the gripper is broken during exporation
+            self.__init__(headless = self.headless)
+            done = True
+
         tx, ty, tz = self.target.get_position()
 
         distance = (ax - tx) ** 2 + (ay - ty) ** 2 + (az - tz) ** 2  # distance between the gripper and the target object
-        done=False
         
         ''' for visual-based control only, large time consumption! '''
         # current_vision = self.vision_sensor.capture_rgb()  # capture a screenshot of the view with vision sensor
@@ -328,7 +335,7 @@ class ReacherEnv(object):
         else:
             pass
 
-        reward -= np.sqrt(distance) # Reward is negative distance to target
+        reward -= np.clip(np.sqrt(distance), 0, self.reward_offset) # Reward is negative distance to target; clipped for removing abnormal cases
         
         if tz < self.initial_target_positions[2]-self.fall_down_offset:  # the object fall off the table
             done = True
@@ -347,6 +354,15 @@ class ReacherEnv(object):
 if __name__ == '__main__':
     CONTROL_MODE='end_position'  # 'end_position' or 'joint_velocity'
     env=ReacherEnv(headless=False, control_mode=CONTROL_MODE)
+    # import time
+    # for _ in range(10):
+    #     env.target.set_position([0.34, 0.025, -0.02])
+    #     env.pr.step()
+    #     time.sleep(0.5)
+    #     env.target.set_collidable(True)
+    #     env.target.set_position([0.34, 0.025, 0.77])
+    #     env.pr.step()
+
     for eps in range(30):
         env.reset()
         for step in range(30):

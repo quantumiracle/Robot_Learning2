@@ -200,6 +200,7 @@ class ReacherEnv(object):
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.target.set_orientation([0,0,0])
+        self.pr.step()
         # set end position to be initialized
         if self.control_mode == 'end_position':  # JointMode.IK
             self.agent.set_control_loop_enabled(True)
@@ -213,6 +214,7 @@ class ReacherEnv(object):
                 self.pr.step()
         elif self.control_mode == 'joint_velocity': # JointMode.FORCE
             self.agent.set_joint_positions(self.initial_joint_positions)  # sometimes the gripper is stuck, cannot get back to initial
+            self.pr.step()
         
         # set collidable, for collision detection
         self.gripper_left_pad.set_collidable(True)  # set the pad on the gripper to be collidable, so as to check collision

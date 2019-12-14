@@ -49,6 +49,7 @@ class ReacherEnv(object):
         pos = list(np.random.uniform(POS_MIN, POS_MAX))
         self.target.set_position(pos)
         self.agent.set_joint_positions(self.initial_joint_positions)
+        self.pr.step()
         return self._get_state()
 
     def step(self, action):
