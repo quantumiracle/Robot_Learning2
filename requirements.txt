@@ -53,7 +53,7 @@ MarkupSafe==1.1.1
 matplotlib==3.1.1
 mayavi==4.7.0
 mccabe==0.6.1
-mistune==0.8.4
+mistune==2.0.3
 # Editable install with no version control (mlagents==0.8.2)
 -e /home/quantumiracle/.local/lib/python3.6/site-packages
 # Editable install with no version control (mlagents-envs==0.8.2)
