@@ -60,7 +60,7 @@ nbformat==4.4.0
 networkx==2.3
 nltk==3.4.1
 notebook==6.0.0
-numpy==1.15.0
+numpy==1.22.0
 olefile==0.46
 opencv-python==3.4.5.20
 pandocfilters==1.4.2
